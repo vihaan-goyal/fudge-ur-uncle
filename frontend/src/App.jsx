@@ -35,26 +35,35 @@ const font = "'IBM Plex Mono', 'Courier New', monospace";
 const fontSans = "'IBM Plex Sans', 'Helvetica Neue', sans-serif";
 
 const colors = {
-  bg: "#0a0e17",
-  surface: "#111827",
-  surfaceLight: "#1a2234",
-  border: "#2a3a52",
-  borderLight: "#3a4f6f",
-  text: "#e2e8f0",
-  textMuted: "#8899aa",
-  accent: "#f97316",
-  accentDim: "#f9731633",
-  green: "#22c55e",
-  greenDim: "#22c55e22",
-  red: "#ef4444",
-  redDim: "#ef444422",
-  yellow: "#eab308",
-  yellowDim: "#eab30822",
-  blue: "#3b82f6",
-  blueDim: "#3b82f622",
-  purple: "#a855f7",
-  dem: "#3b82f6",
-  rep: "#ef4444",
+  // Light, airy base — like a crisp morning
+  bg: "#fdfbf7",           // warm off-white (softer than pure white)
+  surface: "#ffffff",       // clean cards
+  surfaceLight: "#f5f1e8",  // subtle cream for raised elements
+  border: "#e4dcc8",        // warm sand border
+  borderLight: "#d4c8a8",   // slightly stronger for emphasis
+
+  // Readable, warm text
+  text: "#1a2744",          // deep navy instead of harsh black
+  textMuted: "#5a6b85",     // soft slate-blue
+
+  // Patriotic accent — toned-down, confident red (not alarm-red)
+  accent: "#c8102e",        // "Old Glory" red — classic, not scary
+  accentDim: "#c8102e1a",   // 10% tint for backgrounds
+
+  // Status colors — warmer, friendlier versions
+  green: "#2e8b57",         // sea green, more inviting than neon
+  greenDim: "#2e8b5722",
+  red: "#c8102e",           // match accent for consistency
+  redDim: "#c8102e1a",
+  yellow: "#d4a017",        // warm gold instead of harsh yellow
+  yellowDim: "#d4a01722",
+  blue: "#002868",          // "Old Glory" navy blue
+  blueDim: "#00286822",
+  purple: "#6b4c9a",        // softer purple
+
+  // Political party colors — classic, readable
+  dem: "#002868",           // Old Glory blue
+  rep: "#c8102e",           // Old Glory red
 };
 
 // ============================================================
