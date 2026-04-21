@@ -10,7 +10,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 // Lightweight fetch wrapper with timeout + JSON parsing
-async function apiRequest(path, { method = "GET", body, timeout = 15000 } = {}) {
+async function apiRequest(path, { method = "GET", body, timeout = 45000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -39,6 +39,9 @@ export const api = {
 
   getRepsByState: (state) =>
     apiRequest(`/api/reps/by-state/${encodeURIComponent(state)}`),
+
+  getRepFundingLite: (bioguideId) =>
+    apiRequest(`/api/reps/${encodeURIComponent(bioguideId)}/funding-lite`),
 
   searchReps: (query) =>
     apiRequest(`/api/reps/search?q=${encodeURIComponent(query)}`),

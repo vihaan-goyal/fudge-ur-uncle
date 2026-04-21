@@ -432,11 +432,96 @@ const IssueSelectScreen = ({ onNav, offline }) => {
 };
 
 // 5. DASHBOARD - WIRED TO BACKEND
+// Subtle shimmer component for loading funding numbers
+const Shimmer = ({ width = 40 }) => (
+  <span
+    style={{
+      display: "inline-block",
+      width,
+      height: 16,
+      borderRadius: 4,
+      background: `linear-gradient(90deg, ${colors.border} 0%, ${colors.borderLight} 50%, ${colors.border} 100%)`,
+      backgroundSize: "200% 100%",
+      animation: "shimmer 1.3s ease-in-out infinite",
+      verticalAlign: "middle",
+    }}
+  />
+);
+
+// Self-fetching rep card - loads its own funding on mount
+const RepCard = ({ rep, onClick }) => {
+  const [funding, setFunding] = useState(null);
+  const [status, setStatus] = useState("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getRepFundingLite(rep.bioguide_id)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.has_data) {
+          setFunding(data);
+          setStatus("ready");
+        } else {
+          setStatus("none");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("none");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rep.bioguide_id]);
+
+  const renderValue = (value, color) => {
+    if (status === "loading") return <Shimmer />;
+    if (status === "none") return <span style={{ color: colors.textMuted, fontFamily: font, fontSize: 14 }}>—</span>;
+    return (
+      <span style={{ fontSize: 16, fontWeight: 700, fontFamily: font, color: color || colors.text }}>
+        {fmt(value)}
+      </span>
+    );
+  };
+
+  return (
+    <div style={{ ...s.card, cursor: "pointer" }} onClick={onClick}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Avatar name={rep.name} party={rep.party} />
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{rep.name}</span>
+            <PartyBadge party={rep.party} />
+          </div>
+          <div style={{ fontSize: 11, color: colors.textMuted }}>
+            {rep.chamber} · {rep.district}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Raised</div>
+          {renderValue(funding?.total_raised, colors.accent)}
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>PAC $</div>
+          {renderValue(funding?.pac_total)}
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Small $</div>
+          {renderValue(funding?.small_donor_total)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 5. DASHBOARD - WIRED TO BACKEND (streaming)
 const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
   const { data, loading, error, offline, reload } = useApi(
     () => api.getRepsByState(userState || "CT"),
     [userState],
-    { representatives: SAMPLE.reps, state: "CT", count: SAMPLE.reps.length }
+    { representatives: [], state: userState || "CT", count: 0 }
   );
 
   const reps = data?.representatives || [];
@@ -444,9 +529,17 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
+      <style>{`
+        @keyframes shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
       <div style={s.header}>
         <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Your Representatives</h1>
-        <p style={s.headerSub}>State: {userState || "CT"} {offline && "(offline sample)"}</p>
+        <p style={s.headerSub}>
+          State: {userState || "CT"} {offline && "(backend offline)"}
+        </p>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
         {/* Urgent Alert Banner */}
@@ -466,42 +559,23 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
         {loading && <Loading label="Fetching your representatives..." />}
         {error && <ErrorBanner error={error} onRetry={reload} />}
 
-        {!loading && !error && (
+        {!loading && !error && reps.length === 0 && (
+          <div style={{ ...s.card, textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>
+              No representatives found for {userState}. Try another state in Settings.
+            </div>
+          </div>
+        )}
+
+        {!loading && !error && reps.length > 0 && (
           <div style={s.section}>
             <div style={s.sectionTitle}>Your Officials ({reps.length})</div>
-            {reps.map((p) => (
-              <div key={p.bioguide_id} style={{ ...s.card, cursor: "pointer" }} onClick={() => onSelectPolitician(p.bioguide_id)}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <Avatar name={p.name} party={p.party} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
-                      <PartyBadge party={p.party} />
-                    </div>
-                    <div style={{ fontSize: 11, color: colors.textMuted }}>{p.chamber} · {p.district}</div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Raised</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, fontFamily: font, color: colors.accent }}>
-                      {p.funding ? fmt(p.funding.total_raised) : "—"}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>PAC $</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, fontFamily: font }}>
-                      {p.funding ? fmt(p.funding.pac_total) : "—"}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Small $</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, fontFamily: font }}>
-                      {p.funding ? fmt(p.funding.small_donor_total) : "—"}
-                    </div>
-                  </div>
-                </div>
-              </div>
+            {reps.map((rep) => (
+              <RepCard
+                key={rep.bioguide_id}
+                rep={rep}
+                onClick={() => onSelectPolitician(rep.bioguide_id)}
+              />
             ))}
           </div>
         )}

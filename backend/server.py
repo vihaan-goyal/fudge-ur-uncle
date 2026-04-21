@@ -5,7 +5,7 @@ FastAPI server that aggregates data from multiple APIs
 into the unified endpoints the frontend needs.
 
 Run:  python server.py
-Docs: http://localhost:8000/docs  (auto-generated Swagger UI)
+Docs: http://localhost:8000/docs
 """
 
 import asyncio
@@ -18,14 +18,13 @@ import config
 
 app = FastAPI(
     title="Fudge Ur Uncle API",
-    description="Politician accountability tracker. Aggregates campaign finance, "
-                "voting records, and representative data from public sources.",
+    description="Politician accountability tracker.",
     version="0.1.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Lock down in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,12 +35,7 @@ app.add_middleware(
 # HEALTH
 # ============================================================
 
-@app.get("/api/health", tags=["health"])
-async def health():
-    return await root()
-
-@app.get("/", tags=["health"])
-async def root():
+def _health_payload():
     return {
         "app": "Fudge Ur Uncle",
         "version": "0.1.0",
@@ -55,6 +49,16 @@ async def root():
     }
 
 
+@app.get("/", tags=["health"])
+async def root():
+    return _health_payload()
+
+
+@app.get("/api/health", tags=["health"])
+async def health():
+    return _health_payload()
+
+
 # ============================================================
 # REPRESENTATIVES  -  /api/reps
 # ============================================================
@@ -63,67 +67,66 @@ async def root():
 async def get_reps_by_state(state: str):
     """
     Get all federal representatives for a state.
-    Combines legislator data with funding summaries.
     
-    Example: /api/reps/by-state/CT
+    This endpoint is FAST - it returns just legislator basics without
+    funding. The frontend loads funding per-rep via /api/reps/{id}/funding-lite.
     """
-    # Get basic legislator info
     legs = await legislators.search_by_state(state.upper())
     if not legs:
-        raise HTTPException(404, f"No legislators found for state: {state}")
+        return {"state": state.upper(), "count": 0, "representatives": []}
 
-    # Enrich with funding data from WhoBoughtMyRep
-    wbmr_reps = await whoboughtmyrep.get_reps(state=state.upper())
-    funding_map = {r.get("name", "").lower(): r for r in wbmr_reps}
+    # Return reps with funding set to None - frontend fetches per-rep
+    reps = [{**leg, "funding": None} for leg in legs]
+    return {"state": state.upper(), "count": len(reps), "representatives": reps}
 
-    enriched = []
-    for leg in legs:
-        name_key = leg["name"].lower()
-        # Try partial match
-        funding = None
-        for fname, fdata in funding_map.items():
-            if leg["last_name"].lower() in fname:
-                funding = fdata
-                break
 
-        enriched.append({
-            **leg,
-            "funding": {
-                "total_raised": funding.get("total_raised", 0) if funding else 0,
-                "total_funding": funding.get("total_funding", 0) if funding else 0,
-                "pac_total": funding.get("pac_total", 0) if funding else 0,
-                "small_donor_total": funding.get("small_donor_total", 0) if funding else 0,
-            } if funding else None,
-        })
+@app.get("/api/reps/{bioguide_id}/funding-lite", tags=["representatives"])
+async def get_rep_funding_lite(bioguide_id: str):
+    """
+    Lightweight funding summary for a single rep.
+    Used by dashboard cards to lazy-load funding after the rep list renders.
+    """
+    wbmr = await whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
+    if not wbmr:
+        # WBMR has no data - try FEC as fallback
+        leg = await legislators.get_by_bioguide(bioguide_id)
+        if leg and leg.get("fec_ids"):
+            fec_totals = await openfec.get_candidate_totals(leg["fec_ids"][0])
+            if fec_totals:
+                return {
+                    "bioguide_id": bioguide_id,
+                    "total_raised": fec_totals.get("total_receipts", 0),
+                    "pac_total": fec_totals.get("total_pac_contributions", 0),
+                    "small_donor_total": fec_totals.get("total_small_individual", 0),
+                    "source": "fec",
+                    "has_data": True,
+                }
+        return {"bioguide_id": bioguide_id, "has_data": False, "source": "none"}
 
-    return {"state": state.upper(), "count": len(enriched), "representatives": enriched}
-
+    funding = whoboughtmyrep.normalize_rep_funding(wbmr)
+    return {
+        "bioguide_id": bioguide_id,
+        "total_raised": funding["total_raised"],
+        "pac_total": funding["pac_total"],
+        "small_donor_total": funding["small_donor_total"],
+        "source": "wbmr",
+        "has_data": True,
+    }
 
 @app.get("/api/reps/search", tags=["representatives"])
 async def search_reps(q: str = Query(..., min_length=2)):
-    """
-    Search representatives by name.
-    
-    Example: /api/reps/search?q=Murphy
-    """
+    """Search representatives by name."""
     results = await legislators.search_by_name(q)
     return {"query": q, "count": len(results), "results": results}
 
 
 @app.get("/api/reps/{bioguide_id}", tags=["representatives"])
 async def get_rep_detail(bioguide_id: str):
-    """
-    Get full profile for a representative: bio + funding + votes.
-    This is the main endpoint that powers the Politician Profile screen.
-    
-    Example: /api/reps/M001169
-    """
-    # Basic info
+    """Get full profile for a representative."""
     leg = await legislators.get_by_bioguide(bioguide_id)
     if not leg:
         raise HTTPException(404, f"Legislator not found: {bioguide_id}")
 
-    # Funding from OpenFEC
     fec_ids = leg.get("fec_ids", [])
     funding = {}
     top_contributors = []
@@ -131,10 +134,7 @@ async def get_rep_detail(bioguide_id: str):
         funding = await openfec.get_candidate_totals(fec_ids[0])
         top_contributors = await openfec.get_top_contributors(fec_ids[0])
 
-    # Voting record
     votes = await congress_gov.get_member_votes(bioguide_id)
-
-    # Sponsored legislation
     sponsored = await congress_gov.get_sponsored_bills(bioguide_id, limit=5)
 
     return {
@@ -154,30 +154,17 @@ async def get_rep_detail(bioguide_id: str):
 
 @app.get("/api/funding/{bioguide_id}", tags=["funding"])
 async def get_funding_detail(bioguide_id: str):
-    """
-    Full funding breakdown for a representative.
-    Pulls from both OpenFEC (raw) and WhoBoughtMyRep (industry-attributed).
-    
-    Example: /api/funding/M001169
-    """
+    """Full funding breakdown for a representative."""
     leg = await legislators.get_by_bioguide(bioguide_id)
     if not leg:
         raise HTTPException(404, f"Legislator not found: {bioguide_id}")
 
     fec_ids = leg.get("fec_ids", [])
-
-    # Raw FEC totals
     fec_totals = {}
     if fec_ids:
         fec_totals = await openfec.get_candidate_totals(fec_ids[0])
 
-    # Industry attribution from WhoBoughtMyRep
-    wbmr_reps = await whoboughtmyrep.get_reps(state=leg.get("state"))
-    wbmr_data = None
-    for r in wbmr_reps:
-        if leg["last_name"].lower() in r.get("name", "").lower():
-            wbmr_data = r
-            break
+    wbmr_data = await whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
 
     return {
         "representative": {
@@ -187,8 +174,8 @@ async def get_funding_detail(bioguide_id: str):
             "party": leg["party"],
         },
         "fec_totals": fec_totals,
-        "industry_breakdown": wbmr_data.get("top_industries", []) if wbmr_data else [],
-        "top_donors": wbmr_data.get("top_donors", []) if wbmr_data else [],
+        "industry_breakdown": (wbmr_data.get("top_industries", []) if wbmr_data else []),
+        "top_donors": [],  # Pro tier only on WBMR
         "pac_vs_individual": {
             "pac_total": fec_totals.get("total_pac_contributions", 0),
             "individual_total": fec_totals.get("total_individual_contributions", 0),
@@ -199,23 +186,17 @@ async def get_funding_detail(bioguide_id: str):
 
 @app.get("/api/funding/{bioguide_id}/industries", tags=["funding"])
 async def get_funding_by_industry(bioguide_id: str, limit: int = 15):
-    """
-    Industry-level funding with PAC hop tracing.
-    Uses WhoBoughtMyRep's attribution engine.
-    """
-    wbmr_reps = await whoboughtmyrep.get_reps()
+    """Industry-level funding with PAC hop tracing."""
     leg = await legislators.get_by_bioguide(bioguide_id)
     if not leg:
         raise HTTPException(404)
 
-    for r in wbmr_reps:
-        if leg["last_name"].lower() in r.get("name", "").lower():
-            return {
-                "representative": leg["name"],
-                "industries": r.get("top_industries", [])[:limit],
-            }
-
-    return {"representative": leg["name"], "industries": []}
+    wbmr = await whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
+    industries = (wbmr.get("top_industries", []) if wbmr else [])[:limit]
+    return {
+        "representative": leg["name"],
+        "industries": industries,
+    }
 
 
 # ============================================================
@@ -228,12 +209,7 @@ async def get_voting_record(
     category: Optional[str] = None,
     limit: int = 20,
 ):
-    """
-    Get voting record for a representative.
-    Optionally filter by issue category.
-    
-    Example: /api/votes/M001169?category=healthcare
-    """
+    """Get voting record for a representative."""
     votes = await congress_gov.get_member_votes(bioguide_id)
 
     if category:
@@ -252,22 +228,14 @@ async def get_voting_record(
 
 @app.get("/api/bills/search", tags=["bills"])
 async def search_bills(q: str = Query(..., min_length=2), limit: int = 20):
-    """
-    Search bills by keyword.
-    
-    Example: /api/bills/search?q=climate
-    """
+    """Search bills by keyword."""
     results = await congress_gov.search_bills(q, limit=limit)
     return {"query": q, "count": len(results), "bills": results}
 
 
 @app.get("/api/bills/{congress}/{bill_type}/{bill_number}", tags=["bills"])
 async def get_bill(congress: int, bill_type: str, bill_number: int):
-    """
-    Get details for a specific bill.
-    
-    Example: /api/bills/119/s/1821
-    """
+    """Get details for a specific bill."""
     bill = await congress_gov.get_bill_detail(congress, bill_type, bill_number)
     if not bill:
         raise HTTPException(404, "Bill not found")
@@ -275,63 +243,43 @@ async def get_bill(congress: int, bill_type: str, bill_number: int):
 
 
 # ============================================================
-# COMPOSITE  -  /api/profile  (powers the full politician screen)
+# COMPOSITE  -  /api/profile
 # ============================================================
 
 @app.get("/api/profile/{bioguide_id}", tags=["composite"])
 async def get_full_profile(bioguide_id: str):
-    """
-    THE BIG ONE: Full politician profile combining all data sources.
-    This single endpoint powers the entire Politician Profile screen
-    in the app, including funding, votes, and basic info.
-    
-    Example: /api/profile/M001169
-    """
-    # Run all fetches in parallel
+    """Full politician profile combining all data sources."""
     leg_task = legislators.get_by_bioguide(bioguide_id)
     votes_task = congress_gov.get_member_votes(bioguide_id)
     sponsored_task = congress_gov.get_sponsored_bills(bioguide_id, limit=5)
-    wbmr_task = whoboughtmyrep.get_reps()
+    wbmr_task = whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
 
-    leg, votes, sponsored, wbmr_all = await asyncio.gather(
+    leg, votes, sponsored, wbmr = await asyncio.gather(
         leg_task, votes_task, sponsored_task, wbmr_task
     )
 
     if not leg:
         raise HTTPException(404, f"Legislator not found: {bioguide_id}")
 
-    # Match WhoBoughtMyRep data
-    wbmr = None
-    for r in wbmr_all:
-        if leg["last_name"].lower() in r.get("name", "").lower():
-            wbmr = r
-            break
-
-    # Fetch FEC totals if we have an FEC ID
     fec_totals = {}
     fec_ids = leg.get("fec_ids", [])
     if fec_ids:
         fec_totals = await openfec.get_candidate_totals(fec_ids[0])
 
-    # Compute promise score placeholder
-    # In production, this comes from your own promise-tracking database
-    promise_score = None  # TODO: Build promise tracking system
+    funding = whoboughtmyrep.normalize_rep_funding(wbmr)
+    funding["individual_total"] = fec_totals.get("total_individual_contributions", 0)
 
-    # Compute vote stats
+    if not wbmr and fec_totals:
+        funding["total_raised"] = fec_totals.get("total_receipts", 0)
+        funding["pac_total"] = fec_totals.get("total_pac_contributions", 0)
+        funding["small_donor_total"] = fec_totals.get("total_small_individual", 0)
+
     yea_count = sum(1 for v in votes if v.get("member_vote") == "Yea")
     nay_count = sum(1 for v in votes if v.get("member_vote") == "Nay")
 
     return {
         "profile": leg,
-        "funding": {
-            "total_raised": wbmr.get("total_raised", 0) if wbmr else fec_totals.get("total_receipts", 0),
-            "total_funding": wbmr.get("total_funding", 0) if wbmr else 0,
-            "pac_total": wbmr.get("pac_total", 0) if wbmr else fec_totals.get("total_pac_contributions", 0),
-            "individual_total": fec_totals.get("total_individual_contributions", 0),
-            "small_donor_total": wbmr.get("small_donor_total", 0) if wbmr else fec_totals.get("total_small_individual", 0),
-            "top_industries": wbmr.get("top_industries", []) if wbmr else [],
-            "top_donors": wbmr.get("top_donors", []) if wbmr else [],
-        },
+        "funding": funding,
         "votes": {
             "recent": votes[:10],
             "total_tracked": len(votes),
@@ -339,7 +287,7 @@ async def get_full_profile(bioguide_id: str):
             "nay_count": nay_count,
         },
         "sponsored_bills": sponsored,
-        "promise_score": promise_score,
+        "promise_score": None,
         "contact": {
             "phone": leg.get("phone", ""),
             "website": leg.get("website", ""),

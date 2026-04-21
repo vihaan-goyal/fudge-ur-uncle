@@ -260,15 +260,19 @@ async def get_sponsored_bills(bioguide_id: str, limit: int = 10) -> list[dict]:
             {"limit": limit}
         )
         bills = []
-        for b in data.get("sponsoredLegislation", []):
+        sponsored_list = data.get("sponsoredLegislation") or []
+        for b in sponsored_list:
+            if not b:
+                continue
+            latest_action = b.get("latestAction") or {}
             bills.append({
                 "number": f"{b.get('type','')}.{b.get('number','')}",
                 "title": b.get("title", ""),
                 "introduced_date": b.get("introducedDate", ""),
-                "latest_action": b.get("latestAction", {}).get("text", ""),
+                "latest_action": latest_action.get("text", ""),
                 "congress": b.get("congress"),
             })
         return bills
     except Exception as e:
         print(f"[congress] Error fetching sponsored bills: {e}")
-        return []
+        return [];

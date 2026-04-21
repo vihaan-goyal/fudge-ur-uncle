@@ -2,232 +2,179 @@
 WhoBoughtMyRep API - Pre-processed Campaign Finance
 =====================================================
 Source: https://whoboughtmyrep.com/developers
-Key:    Free tier, no credit card
+Key:    Free tier = 100 requests/day
 
-This is the BEST starting API for the app because it does the hard work
-of industry attribution (tracing PAC dollars back through hop chains)
-that would take months to build from raw FEC data.
+Free tier endpoints:
+  GET /reps                 - list & search members
+  GET /reps/{bioguide_id}   - full profile (includes top_industries)
+  GET /reps/{id}/committees - committee memberships
+  GET /industries           - industry overview
 
-Covers: 538 members, 13.8M+ donations, industry attribution,
-        PAC data, voting records. Updated monthly (contributions)
-        and daily (votes).
+Pro-only ($49/mo):
+  /reps/{id}/donors, /reps/{id}/votes, /donors/search, etc.
+
+Names are in FEC format: "Last, First M."
 """
 
+import time
 import httpx
 from typing import Optional
 from config import WHOBOUGHTMYREP_BASE, WHOBOUGHTMYREP_API_KEY
 
 
-# -- Embedded sample data for offline dev --
+# -- In-memory cache to stay within 100/day limit --
+# WBMR uses full state names (e.g. "Connecticut"), not 2-letter codes
+STATE_NAMES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
+    "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+    "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+    "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
+    "AS": "American Samoa", "GU": "Guam", "MP": "Northern Mariana Islands",
+    "PR": "Puerto Rico", "VI": "Virgin Islands",
+}
+_cache: dict = {}
+CACHE_TTL = 3600  # 1 hour; WBMR data updates monthly
+
+
+# -- Sample fallback matching real API shape --
 SAMPLE_REPS = [
     {
-        "wbr_id": "wbr_M001169",
-        "name": "Christopher Murphy",
-        "party": "Democrat",
+        "bioguide_id": "M001169",
+        "name": "Murphy, Christopher S.",
+        "party": "Democratic",
         "state": "CT",
         "chamber": "senate",
-        "total_raised": 27_450_000,
-        "total_funding": 29_100_000,  # includes IE support
-        "small_donor_total": 8_100_000,
-        "pac_total": 4_200_000,
-        "ie_support_total": 1_650_000,
-        "top_industries": [
-            {"industry": "Securities & Investment", "total_attributed": 1_450_000},
-            {"industry": "Lawyers/Law Firms", "total_attributed": 1_280_000},
-            {"industry": "Health Professionals", "total_attributed": 980_000},
-            {"industry": "Education", "total_attributed": 720_000},
-            {"industry": "Real Estate", "total_attributed": 650_000},
-            {"industry": "Insurance", "total_attributed": 480_000},
-            {"industry": "Pharmaceuticals", "total_attributed": 420_000},
-            {"industry": "TV/Movies/Music", "total_attributed": 380_000},
-        ],
-        "top_donors": [
-            {"name": "Yale University", "total": 245_000, "type": "individual_employer"},
-            {"name": "Cigna Corp", "total": 85_000, "type": "pac"},
-            {"name": "United Technologies", "total": 72_000, "type": "pac"},
-            {"name": "Travelers Companies", "total": 55_000, "type": "pac"},
-            {"name": "Hartford Financial Services", "total": 48_000, "type": "pac"},
-        ],
-    },
-    {
-        "wbr_id": "wbr_H001047",
-        "name": "James A. Himes",
-        "party": "Democrat",
-        "state": "CT",
-        "chamber": "house",
-        "district": 4,
-        "total_raised": 5_800_000,
-        "total_funding": 6_200_000,
-        "small_donor_total": 1_200_000,
-        "pac_total": 1_600_000,
-        "ie_support_total": 400_000,
-        "top_industries": [
-            {"industry": "Securities & Investment", "total_attributed": 890_000},
-            {"industry": "Real Estate", "total_attributed": 420_000},
-            {"industry": "Insurance", "total_attributed": 380_000},
-            {"industry": "Lawyers/Law Firms", "total_attributed": 310_000},
-            {"industry": "Commercial Banks", "total_attributed": 280_000},
-        ],
-        "top_donors": [
-            {"name": "Bridgewater Associates", "total": 120_000, "type": "individual_employer"},
-            {"name": "Goldman Sachs", "total": 65_000, "type": "pac"},
-            {"name": "Elliott Management", "total": 58_000, "type": "individual_employer"},
-        ],
-    },
-]
-
-SAMPLE_VOTES = [
-    {
-        "bill": "S.1821",
-        "title": "Infrastructure Investment Reauthorization Act",
-        "date": "2026-04-10",
-        "vote": "Yea",
-        "result": "Passed",
-    },
-    {
-        "bill": "S.1190",
-        "title": "Clean Air Standards Modernization Act",
-        "date": "2026-03-28",
-        "vote": "Nay",
-        "result": "Failed",
+        "total_raised": 27450000,
+        "total_funding": 29100000,
+        "pac_percent": 15.3,
+        "small_donor_percent": 27.8,
+        "ie_support_total": 1650000,
     },
 ]
 
 
-async def _get(endpoint: str, params: dict = None) -> dict:
-    """Make an authenticated request to WhoBoughtMyRep API."""
+async def _get(endpoint: str, params: dict = None, use_cache: bool = True) -> Optional[dict]:
+    """Authenticated request. Returns parsed JSON or None on failure."""
     if not WHOBOUGHTMYREP_API_KEY:
         print("[wbmr] No API key set, using sample data")
-        return {}
+        return None
 
-    params = params or {}
+    cache_key = f"{endpoint}?{params}"
+    if use_cache and cache_key in _cache:
+        ts, data = _cache[cache_key]
+        if time.time() - ts < CACHE_TTL:
+            return data
+
     url = f"{WHOBOUGHTMYREP_BASE}{endpoint}"
     headers = {"x-api-key": WHOBOUGHTMYREP_API_KEY}
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(url, params=params, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(url, params=params or {}, headers=headers)
+            if resp.status_code == 401:
+                print("[wbmr] Invalid API key (401)")
+                return None
+            if resp.status_code == 403:
+                print(f"[wbmr] Endpoint requires Pro tier: {endpoint}")
+                return None
+            if resp.status_code == 429:
+                print("[wbmr] Rate limit hit (100/day on free tier)")
+                return None
+            resp.raise_for_status()
+            data = resp.json()
 
+            if use_cache:
+                _cache[cache_key] = (time.time(), data)
+
+            return data
+    except Exception as e:
+        print(f"[wbmr] Request failed: {e}")
+        return None
 
 async def get_reps(
     state: Optional[str] = None,
     chamber: Optional[str] = None,
+    party: Optional[str] = None,
+    query: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
 ) -> list[dict]:
-    """
-    Get representatives with funding data.
-    
-    Endpoint: /reps
-    Params:   state, chamber (house|senate), limit, offset
-    """
+    """List & search members. GET /reps"""
     params = {"limit": limit, "offset": offset}
     if state:
-        params["state"] = state
+        # WBMR wants full state names like "Connecticut", not "CT"
+        state_upper = state.upper()
+        params["state"] = STATE_NAMES.get(state_upper, state)
     if chamber:
         params["chamber"] = chamber
+    if party:
+        params["party"] = party
+    if query:
+        params["q"] = query
 
-    try:
-        data = await _get("/reps", params)
-        return data.get("data", [])
-    except Exception:
-        # Filter sample data by state/chamber
+    response = await _get("/reps", params)
+    if response is None:
         results = SAMPLE_REPS
         if state:
             results = [r for r in results if r["state"] == state.upper()]
-        if chamber:
-            results = [r for r in results if r["chamber"] == chamber.lower()]
         return results
+    return response.get("data", [])
+
+async def get_rep_by_bioguide(bioguide_id: str) -> Optional[dict]:
+    """Full profile with top_industries. GET /reps/{bioguide_id}"""
+    response = await _get(f"/reps/{bioguide_id}")
+    if response is None:
+        return None
+    return response.get("data")
 
 
-async def get_rep_detail(rep_id: str) -> dict:
-    """
-    Get detailed funding breakdown for one representative.
-    
-    Endpoint: /reps/{rep_id}
-    Returns:  total_raised, total_funding, top_industries (with PAC hop tracing),
-              top_donors, small_donor_total, ie_support_total
-    """
-    try:
-        data = await _get(f"/reps/{rep_id}")
-        return data.get("data", {})
-    except Exception:
-        for rep in SAMPLE_REPS:
-            if rep["wbr_id"] == rep_id:
-                return rep
-        return {}
-
-
-async def get_rep_industries(rep_id: str, limit: int = 15) -> list[dict]:
-    """
-    Get industry-level funding breakdown.
-    
-    Endpoint: /reps/{rep_id}/industries
-    This is the killer feature - WhoBoughtMyRep traces money through
-    PAC hops to attribute donations back to their original industry.
-    """
-    try:
-        data = await _get(f"/reps/{rep_id}/industries", {"limit": limit})
-        return data.get("data", [])
-    except Exception:
-        for rep in SAMPLE_REPS:
-            if rep["wbr_id"] == rep_id:
-                return rep.get("top_industries", [])[:limit]
+async def get_rep_committees(bioguide_id: str) -> list[dict]:
+    """Committee memberships. GET /reps/{bioguide_id}/committees"""
+    response = await _get(f"/reps/{bioguide_id}/committees")
+    if response is None:
         return []
+    return response.get("data", [])
 
 
-async def get_rep_donors(rep_id: str, limit: int = 20) -> list[dict]:
-    """
-    Get top donors for a representative.
-    
-    Endpoint: /reps/{rep_id}/donors
-    """
-    try:
-        data = await _get(f"/reps/{rep_id}/donors", {"limit": limit})
-        return data.get("data", [])
-    except Exception:
-        for rep in SAMPLE_REPS:
-            if rep["wbr_id"] == rep_id:
-                return rep.get("top_donors", [])[:limit]
+async def get_industries(limit: int = 20) -> list[dict]:
+    """Industry overview. GET /industries"""
+    response = await _get("/industries", {"limit": limit})
+    if response is None:
         return []
+    return response.get("data", [])
 
+def normalize_rep_funding(rep: dict) -> dict:
+    """Shape funding data consistently for the frontend."""
+    if not rep:
+        return {
+            "total_raised": 0,
+            "total_funding": 0,
+            "pac_total": 0,
+            "small_donor_total": 0,
+            "individual_total": 0,
+            "ie_support_total": 0,
+            "top_industries": [],
+            "top_donors": [],
+            "grassroots_rank": None,
+        }
 
-async def get_rep_votes(rep_id: str, limit: int = 20) -> list[dict]:
-    """
-    Get voting record for a representative.
-    
-    Endpoint: /reps/{rep_id}/votes
-    Updated daily from Congress.gov.
-    """
-    try:
-        data = await _get(f"/reps/{rep_id}/votes", {"limit": limit})
-        return data.get("data", [])
-    except Exception:
-        return SAMPLE_VOTES
-
-
-async def search_donations(
-    donor_name: Optional[str] = None,
-    state: Optional[str] = None,
-    min_amount: Optional[int] = None,
-    limit: int = 20,
-) -> list[dict]:
-    """
-    Search individual donations across all members.
-    
-    Endpoint: /donations
-    """
-    params = {"limit": limit}
-    if donor_name:
-        params["donor_name"] = donor_name
-    if state:
-        params["state"] = state
-    if min_amount:
-        params["min_amount"] = min_amount
-
-    try:
-        data = await _get("/donations", params)
-        return data.get("data", [])
-    except Exception:
-        return []
+    return {
+        "total_raised": rep.get("total_raised") or 0,
+        "total_funding": rep.get("total_funding") or 0,
+        "pac_total": rep.get("pac_total") or 0,
+        "small_donor_total": rep.get("small_donor_total") or 0,
+        "individual_total": rep.get("individual_total") or 0,
+        "ie_support_total": rep.get("ie_support_total") or 0,
+        "top_industries": rep.get("top_industries") or [],
+        "top_donors": [],  # Pro tier only
+        "grassroots_rank": rep.get("grassroots_chamber_rank"),
+    }
