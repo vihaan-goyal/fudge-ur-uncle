@@ -72,6 +72,15 @@ export const api = {
 
   getBill: (congress, billType, billNumber) =>
     apiRequest(`/api/bills/${congress}/${billType}/${billNumber}`),
+
+   getAlerts: ({ urgentOnly = false, limit = 20 } = {}) => {
+      const params = new URLSearchParams({ limit });
+      if (urgentOnly) params.set("urgent_only", "true");
+      return apiRequest(`/api/alerts?${params}`);
+    },
+
+    getAlertsForRep: (bioguideId, limit = 20) =>
+      apiRequest(`/api/alerts/by-rep/${encodeURIComponent(bioguideId)}?limit=${limit}`),
 };
 
 // ---- Sample data fallback (used if backend is unreachable) ----

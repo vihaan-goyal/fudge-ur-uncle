@@ -1136,37 +1136,137 @@ const LearnToVoteScreen = ({ onNav, userState }) => (
   </div>
 );
 
-// 16. ALERTS
-const AlertsScreen = ({ onNav }) => (
-  <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
-    <StatusBar />
-    <div style={s.header}>
-      <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Alerts</h1>
-      <p style={s.headerSub}>Based on your issues & representatives</p>
-    </div>
-    <div style={{ ...s.body, paddingBottom: 70 }}>
-      <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>SAMPLE ALERTS</div>
-        <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>
-          Real alerts will fire when new FEC filings land before scheduled votes, detected by the backend.
-        </div>
+// 16. ALERTS - Wired to backend
+const AlertsScreen = ({ onNav }) => {
+  const [alerts, setAlerts] = useState(null);
+  const [error, setError] = useState(null);
+  const [urgentOnly, setUrgentOnly] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAlerts(null);
+    setError(null);
+    api
+      .getAlerts({ urgentOnly })
+      .then((data) => {
+        if (!cancelled) setAlerts(data.alerts || []);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e.message || "Failed to load alerts");
+          setAlerts(SAMPLE.alerts); // graceful fallback to existing sample
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [urgentOnly]);
+
+  const isReal = alerts && !error;
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar />
+      <div style={s.header}>
+        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Alerts</h1>
+        <p style={s.headerSub}>Donation + vote correlations</p>
       </div>
-      {SAMPLE.alerts.map((a) => (
-        <div key={a.id} style={{ ...s.card, borderColor: a.urgent ? colors.red + "44" : colors.border, background: a.urgent ? colors.redDim : colors.surfaceLight }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            {a.urgent && <span style={s.badge("red")}>URGENT</span>}
-            <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginLeft: "auto" }}>{a.time}</span>
-          </div>
-          <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 8 }}>{a.text}</div>
-          <button style={{ ...s.btn("outline"), padding: "6px 12px", fontSize: 11, width: "auto", ...(a.urgent ? { color: colors.red, borderColor: colors.red } : {}) }}>
-            {a.action}
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        {/* Filter toggle */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <button
+            style={s.chip(!urgentOnly)}
+            onClick={() => setUrgentOnly(false)}
+          >
+            All
+          </button>
+          <button
+            style={s.chip(urgentOnly)}
+            onClick={() => setUrgentOnly(true)}
+          >
+            Urgent only
           </button>
         </div>
-      ))}
+
+        {error && (
+          <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>
+              Showing sample alerts (backend offline)
+            </div>
+            <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>
+              {error}
+            </div>
+          </div>
+        )}
+
+        {alerts === null && <Loading label="Loading alerts..." />}
+
+        {alerts && alerts.length === 0 && (
+          <div style={s.card}>
+            <div style={{ fontSize: 13 }}>
+              No alerts right now. Run the pipeline:{" "}
+              <code style={{ fontFamily: font, color: colors.accent }}>
+                python -m backend.alerts.pipeline
+              </code>
+            </div>
+          </div>
+        )}
+
+        {alerts && alerts.map((a) => {
+          // Real alerts have richer shape than SAMPLE.alerts
+          const isUrgent = a.urgent !== undefined ? a.urgent : a.urgent;
+          const headline = a.headline || a.text;
+          const time = a.time || "recently";
+          return (
+            <div
+              key={a.id}
+              style={{
+                ...s.card,
+                borderColor: isUrgent ? colors.red + "44" : colors.border,
+                background: isUrgent ? colors.redDim : colors.surface,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                {isUrgent && <span style={s.badge("red")}>URGENT</span>}
+                <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginLeft: "auto" }}>
+                  {time}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, lineHeight: 1.35 }}>
+                {headline}
+              </div>
+              {a.body && (
+                <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
+                  {a.body}
+                </div>
+              )}
+              {isReal && a.score !== undefined && (
+                <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
+                  score: {a.score.toFixed(2)} {a.signals?.T !== undefined && (
+                    <span style={{ marginLeft: 8 }}>
+                      T={a.signals.T.toFixed(2)} V={a.signals.V.toFixed(2)} D={a.signals.D.toFixed(2)} R={a.signals.R.toFixed(2)} A={a.signals.A.toFixed(2)} N={a.signals.N.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {a.bioguide_id && (
+                <button
+                  style={{ ...s.btn("outline"), padding: "6px 10px", fontSize: 11, marginTop: 10, width: "auto" }}
+                  onClick={() => {
+                    onNav(SCREENS.POLITICIAN_PROFILE);
+                  }}
+                >
+                  View Rep
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <NavBar active={SCREENS.ALERTS} onNav={onNav} />
     </div>
-    <NavBar active={SCREENS.ALERTS} onNav={onNav} />
-  </div>
-);
+  );
+}
 
 // 17. SETTINGS
 const SettingsScreen = ({ onNav, userState, onSetState }) => {

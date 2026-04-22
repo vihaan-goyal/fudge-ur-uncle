@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 from api import legislators, openfec, congress_gov, whoboughtmyrep
+from api.alerts_router import router as alerts_router
 import config
 
 app = FastAPI(
@@ -30,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(alerts_router)
 
 # ============================================================
 # HEALTH
