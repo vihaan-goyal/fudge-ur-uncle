@@ -47,3 +47,6 @@ desktop.ini
 cache/
 *.sqlite
 *.db
+
+# === Claude Code (local machine settings only) ===
+.claude/settings.local.json

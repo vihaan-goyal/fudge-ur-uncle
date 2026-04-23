@@ -14,8 +14,13 @@ load_dotenv(Path(__file__).parent / ".env")
 DATA_GOV_API_KEY = os.getenv("DATA_GOV_API_KEY", "DEMO_KEY")
 WHOBOUGHTMYREP_API_KEY = os.getenv("WHOBOUGHTMYREP_API_KEY", "")
 LEGISCAN_API_KEY = os.getenv("LEGISCAN_API_KEY", "")
+GUARDIAN_API_KEY = os.getenv("GUARDIAN_API_KEY", "")
+NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # -- Base URLs --
+GUARDIAN_BASE = "https://content.guardianapis.com"
+NEWSAPI_BASE = "https://newsapi.org/v2"
 OPENFEC_BASE = "https://api.open.fec.gov/v1"
 CONGRESS_GOV_BASE = "https://api.congress.gov/v3"
 WHOBOUGHTMYREP_BASE = "https://whoboughtmyrep.com/api/v1"

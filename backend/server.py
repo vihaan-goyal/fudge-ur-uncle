@@ -13,7 +13,8 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
-from api import legislators, openfec, congress_gov, whoboughtmyrep
+from api import legislators, openfec, congress_gov, whoboughtmyrep, events
+from api import guardian, news, ai_summary
 from api.alerts_router import router as alerts_router
 import config
 
@@ -242,6 +243,42 @@ async def get_bill(congress: int, bill_type: str, bill_number: int):
     if not bill:
         raise HTTPException(404, "Bill not found")
     return bill
+
+
+# ============================================================
+# EVENTS  -  /api/events
+# ============================================================
+
+@app.get("/api/events", tags=["events"])
+async def get_events(
+    state: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Upcoming federal committee hearings from Congress.gov."""
+    event_list = await events.fetch_events(limit=limit)
+    return {"state": state, "count": len(event_list), "events": event_list}
+
+
+@app.get("/api/events/article", tags=["events"])
+async def get_event_article(q: str = Query(..., min_length=3)):
+    """Find the most relevant news article for a committee hearing (NewsAPI primary, Guardian fallback)."""
+    article = await news.search_article(q)
+    if article is None:
+        article = await guardian.search_article(q)
+    return {"article": article}
+
+
+@app.get("/api/events/summary", tags=["events"])
+async def get_event_summary(
+    title: str = Query(..., min_length=3),
+    chamber: str = Query(""),
+    meeting_type: str = Query(""),
+    committee: str = Query(""),
+    bills: str = Query(""),
+):
+    """Generate an AI plain-English summary for a committee meeting."""
+    summary = await ai_summary.get_event_summary(title, chamber, meeting_type, committee, bills)
+    return {"summary": summary}
 
 
 # ============================================================

@@ -20,6 +20,7 @@ const SCREENS = {
   TAKE_ACTION: "take_action",
   CONTACT_REP: "contact_rep",
   EVENTS: "events",
+  EVENT_DETAIL: "event_detail",
   LEARN_TO_VOTE: "learn_to_vote",
   SETTINGS: "settings",
   ALERTS: "alerts",
@@ -1057,31 +1058,195 @@ const ContactRepScreen = ({ onNav, userState }) => {
   );
 };
 
-// 14. EVENTS
-const EventsScreen = ({ onNav, userState }) => {
-  const events = SAMPLE.events;
-  const typeColors = { town_hall: colors.purple, council: colors.blue, registration: colors.green, hearing: colors.yellow };
+// 14. EVENT DETAIL
+const EventDetailScreen = ({ onNav, event }) => {
+  const { data: articleData, loading: articleLoading } = useApi(
+    () => api.getEventArticle(event?.title || ""),
+    [event?.title],
+    { article: null }
+  );
+  const article = articleData?.article;
+
+  const { data: summaryData, loading: summaryLoading } = useApi(
+    () => api.getEventSummary(event || {}),
+    [event?.title],
+    { summary: null }
+  );
+  const summary = summaryData?.summary;
+
+  if (!event) {
+    return (
+      <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+        <StatusBar />
+        <div style={s.body}>
+          <BackButton onClick={() => onNav(SCREENS.EVENTS)} label="Events" />
+          <div style={s.card}><div style={{ fontSize: 12, color: colors.textMuted }}>No event selected.</div></div>
+        </div>
+        <NavBar active={SCREENS.EVENTS} onNav={onNav} />
+      </div>
+    );
+  }
+
+  const chamberColor = event.chamber === "Senate" ? colors.accent : colors.blue;
 
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar />
       <div style={s.header}>
-        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Events Near You</h1>
-        <p style={s.headerSub}>{userState || "CT"} · Within 25 miles</p>
+        <BackButton onClick={() => onNav(SCREENS.EVENTS)} label="Events" />
+        <h1 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 2 }}>{`${event.chamber || ""} ${event.meeting_type || "Meeting"}`.trim()}</h1>
+        {event.congress && (
+          <p style={s.headerSub}>{event.congress}th Congress</p>
+        )}
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
-        <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>SAMPLE DATA</div>
-          <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>
-            Events integration pending - will connect to Democracy Works API or similar.
+
+        <div style={{ ...s.card, marginBottom: 10 }}>
+          {event.chamber && (
+            <div style={{ display: "inline-block", background: chamberColor + "22", color: chamberColor, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, marginBottom: 8, fontFamily: font }}>
+              {event.chamber.toUpperCase()}
+            </div>
+          )}
+          <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.4 }}>{event.title}</div>
+        </div>
+
+        {/* AI Summary */}
+        <div style={{ ...s.card, marginBottom: 10, borderLeft: `3px solid ${colors.accent}44` }}>
+          <div style={{ fontSize: 10, color: colors.accent, fontWeight: 700, marginBottom: 6, fontFamily: font, letterSpacing: "0.05em" }}>AI SUMMARY</div>
+          {summaryLoading && (
+            <div style={{ fontSize: 12, color: colors.textMuted }}>Generating summary...</div>
+          )}
+          {!summaryLoading && summary && (
+            <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.6 }}>{summary}</div>
+          )}
+          {!summaryLoading && !summary && (
+            <div style={{ fontSize: 12, color: colors.textMuted }}>Summary unavailable.</div>
+          )}
+        </div>
+
+        <div style={{ ...s.card, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>SCHEDULE</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>Date</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{event.date}</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>Time</span>
+              <span style={{ fontSize: 13 }}>{event.time}</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>Place</span>
+              <span style={{ fontSize: 13 }}>{event.location}</span>
+            </div>
           </div>
         </div>
-        {events.map((ev) => (
-          <div key={ev.id} style={{ ...s.card, cursor: "pointer" }}>
+
+        {event.committees?.length > 0 && (
+          <div style={{ ...s.card, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>
+              {event.committees.length > 1 ? "COMMITTEES" : "COMMITTEE"}
+            </div>
+            {event.committees.map((name, i) => (
+              <div key={i} style={{ fontSize: 13, color: colors.text, lineHeight: 1.5 }}>{name}</div>
+            ))}
+          </div>
+        )}
+
+        {event.witnesses?.length > 0 && (
+          <div style={{ ...s.card, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>WITNESSES</div>
+            {event.witnesses.map((w, i) => (
+              <div key={i} style={{ marginBottom: i < event.witnesses.length - 1 ? 8 : 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
+                {w.organization && <div style={{ fontSize: 11, color: colors.textMuted }}>{w.organization}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Bills being considered */}
+        {event.bills?.length > 0 && (
+          <div style={{ ...s.card, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>LEGISLATION</div>
+            {event.bills.map((b, i) => (
+              <a key={i} href={b.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block", marginBottom: i < event.bills.length - 1 ? 10 : 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: colors.accent, fontFamily: font, marginBottom: 2 }}>{b.bill}</div>
+                <div style={{ fontSize: 12, color: colors.text, lineHeight: 1.4 }}>{b.title}</div>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* Related news article */}
+        <div style={{ ...s.card, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>NEWS COVERAGE</div>
+          {articleLoading && <div style={{ fontSize: 12, color: colors.textMuted }}>Finding related article...</div>}
+          {!articleLoading && !article && (
+            <div style={{ fontSize: 12, color: colors.textMuted }}>No recent coverage found.</div>
+          )}
+          {!articleLoading && article && (
+            <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block" }}>
+              <div style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4 }}>
+                {article.section}{article.date ? ` · ${article.date}` : ""}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: colors.accent, lineHeight: 1.4, marginBottom: article.snippet ? 4 : 0 }}>
+                {article.title}
+              </div>
+              {article.snippet && (
+                <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}
+                  dangerouslySetInnerHTML={{ __html: article.snippet }} />
+              )}
+            </a>
+          )}
+        </div>
+
+      </div>
+      <NavBar active={SCREENS.EVENTS} onNav={onNav} />
+    </div>
+  );
+};
+
+// 14b. EVENTS
+const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
+  const { data, loading, error, offline, reload } = useApi(
+    () => api.getEvents(userState),
+    [userState],
+    { events: SAMPLE.events, count: SAMPLE.events.length, state: userState }
+  );
+
+  const events = data?.events || [];
+  const typeColors = { town_hall: colors.purple, council: colors.blue, registration: colors.green, hearing: colors.yellow };
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={s.header}>
+        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Events Near You</h1>
+        <p style={s.headerSub}>{userState || "CT"} · Federal Committee Hearings</p>
+      </div>
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        {offline && (
+          <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>OFFLINE — SAMPLE DATA</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>
+              Could not reach the server. Showing example events.
+            </div>
+          </div>
+        )}
+        {loading && <Loading label="Loading upcoming events..." />}
+        {error && <ErrorBanner error={error} onRetry={reload} />}
+        {!loading && !error && events.length === 0 && (
+          <div style={s.card}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>No upcoming events found.</div>
+          </div>
+        )}
+        {!loading && !error && events.map((ev) => (
+          <div key={ev.id} style={{ ...s.card, cursor: "pointer" }} onClick={() => onSelectEvent?.(ev)}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
               <div style={{ width: 44, minHeight: 44, borderRadius: 8, background: (typeColors[ev.type] || colors.accent) + "22", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: "4px 0" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, fontFamily: font, color: typeColors[ev.type] }}>{ev.date.split(" ")[1].replace(",", "")}</div>
-                <div style={{ fontSize: 9, fontFamily: font, color: typeColors[ev.type] }}>{ev.date.split(" ")[0]}</div>
+                <div style={{ fontSize: 14, fontWeight: 800, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{(ev.date?.split(" ")?.[1] ?? "").replace(",", "")}</div>
+                <div style={{ fontSize: 9, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{ev.date?.split(" ")?.[0] ?? ""}</div>
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{ev.title}</div>
@@ -1351,6 +1516,7 @@ export default function App() {
   const [selectedBioguideId, setSelectedBioguideId] = useState("M001169");
   const [userState, setUserState] = useState("CT");
   const [profileData, setProfileData] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
   const [globalOffline, setGlobalOffline] = useState(false);
 
   // Check backend health on load
@@ -1364,6 +1530,11 @@ export default function App() {
     setSelectedBioguideId(bioguideId);
     setProfileData(null); // clear old data so it refetches
     setCurrentScreen(SCREENS.POLITICIAN_PROFILE);
+  };
+
+  const selectEvent = (ev) => {
+    setSelectedEvent(ev);
+    setCurrentScreen(SCREENS.EVENT_DETAIL);
   };
 
   const renderScreen = () => {
@@ -1382,7 +1553,8 @@ export default function App() {
       case SCREENS.TIMELINE: return <TimelineScreen {...common} profileData={profileData} />;
       case SCREENS.TAKE_ACTION: return <TakeActionScreen {...common} profileData={profileData} />;
       case SCREENS.CONTACT_REP: return <ContactRepScreen {...common} userState={userState} />;
-      case SCREENS.EVENTS: return <EventsScreen {...common} userState={userState} />;
+      case SCREENS.EVENTS: return <EventsScreen {...common} userState={userState} onSelectEvent={selectEvent} />;
+      case SCREENS.EVENT_DETAIL: return <EventDetailScreen {...common} event={selectedEvent} />;
       case SCREENS.LEARN_TO_VOTE: return <LearnToVoteScreen {...common} userState={userState} />;
       case SCREENS.ALERTS: return <AlertsScreen {...common} />;
       case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSetState={setUserState} />;
@@ -1406,6 +1578,7 @@ export default function App() {
     [SCREENS.TAKE_ACTION, "Take Action"],
     [SCREENS.CONTACT_REP, "Contact Reps"],
     [SCREENS.EVENTS, "Events"],
+    [SCREENS.EVENT_DETAIL, "Event Detail"],
     [SCREENS.LEARN_TO_VOTE, "Learn to Vote"],
     [SCREENS.ALERTS, "Alerts"],
     [SCREENS.SETTINGS, "Settings"],

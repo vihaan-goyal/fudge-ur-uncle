@@ -81,6 +81,24 @@ export const api = {
 
     getAlertsForRep: (bioguideId, limit = 20) =>
       apiRequest(`/api/alerts/by-rep/${encodeURIComponent(bioguideId)}?limit=${limit}`),
+
+  getEvents: (state, limit = 20) => {
+    const params = new URLSearchParams({ limit });
+    if (state) params.set("state", state);
+    return apiRequest(`/api/events?${params}`);
+  },
+
+  getEventArticle: (title) =>
+    apiRequest(`/api/events/article?q=${encodeURIComponent(title)}`),
+
+  getEventSummary: (event) => {
+    const params = new URLSearchParams({ title: event.title || "" });
+    if (event.chamber) params.set("chamber", event.chamber);
+    if (event.meeting_type) params.set("meeting_type", event.meeting_type);
+    if (event.committees?.[0]) params.set("committee", event.committees[0]);
+    if (event.bills?.length) params.set("bills", event.bills.map((b) => b.bill).join(", "));
+    return apiRequest(`/api/events/summary?${params}`);
+  },
 };
 
 // ---- Sample data fallback (used if backend is unreachable) ----
