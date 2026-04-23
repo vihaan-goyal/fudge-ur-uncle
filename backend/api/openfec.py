@@ -103,48 +103,75 @@ async def get_candidate_totals(
         return SAMPLE_CANDIDATE_TOTALS.get(candidate_id, {})
 
 
+async def _get_principal_committee_id(candidate_id: str, cycle: int) -> str:
+    """Resolve a candidate_id to their principal committee_id."""
+    cand_data = await _get(f"/candidate/{candidate_id}/", {"cycle": cycle})
+    results = cand_data.get("results", [])
+    if not results:
+        return ""
+    return results[0].get("principal_committees", [{}])[0].get("committee_id", "")
+
+
 async def get_top_contributors(
     candidate_id: str, cycle: int = 2024, limit: int = 10
 ) -> list[dict]:
-    """
-    Get top contributors (committees/PACs that donated).
-    
-    Endpoint: /schedules/schedule_b/ filtered by committee
-    Note: For a simpler pre-processed version, use WhoBoughtMyRep instead.
-    """
+    """Get top contributing committees/PACs. Endpoint: /schedules/schedule_a/by_contributor/"""
     try:
-        # First get the candidate's principal committee
-        cand_data = await _get(f"/candidate/{candidate_id}/", {"cycle": cycle})
-        results = cand_data.get("results", [])
-        if not results:
-            return SAMPLE_TOP_CONTRIBUTORS[:limit]
-        
-        committee_id = results[0].get("principal_committees", [{}])[0].get("committee_id", "")
+        committee_id = await _get_principal_committee_id(candidate_id, cycle)
         if not committee_id:
             return SAMPLE_TOP_CONTRIBUTORS[:limit]
 
-        # Then get contributions TO that committee
-        contrib_data = await _get(
+        data = await _get(
             "/schedules/schedule_a/by_contributor/",
-            {
-                "committee_id": committee_id,
-                "cycle": cycle,
-                "sort": "-total",
-                "per_page": limit,
-            },
+            {"committee_id": committee_id, "cycle": cycle, "sort": "-total", "per_page": limit},
         )
-        contributors = []
-        for r in contrib_data.get("results", []):
-            contributors.append({
+        contributors = [
+            {
                 "contributor_name": r.get("contributor_name", ""),
                 "total": r.get("total", 0),
                 "type": "pac" if "PAC" in r.get("contributor_name", "").upper() else "individual",
-            })
+            }
+            for r in data.get("results", [])
+        ]
         return contributors or SAMPLE_TOP_CONTRIBUTORS[:limit]
-
     except Exception as e:
         print(f"[openfec] Error fetching contributors: {e}")
         return SAMPLE_TOP_CONTRIBUTORS[:limit]
+
+
+async def get_top_employers(
+    candidate_id: str, cycle: int = 2024, limit: int = 10
+) -> list[dict]:
+    """
+    Get top employers of individual donors — the same methodology OpenSecrets uses.
+    Aggregates itemized individual contributions by the donor's listed employer.
+    Endpoint: /schedules/schedule_a/by_employer/
+    """
+    try:
+        committee_id = await _get_principal_committee_id(candidate_id, cycle)
+        if not committee_id:
+            return []
+
+        data = await _get(
+            "/schedules/schedule_a/by_employer/",
+            {"committee_id": committee_id, "cycle": cycle, "sort": "-total", "per_page": limit},
+        )
+        results = []
+        for r in data.get("results", []):
+            employer = (r.get("employer") or "").strip()
+            if not employer or employer.upper() in ("RETIRED", "SELF-EMPLOYED", "N/A", "NONE", "NOT EMPLOYED"):
+                continue
+            results.append({
+                "name": employer.title(),
+                "total": r.get("total", 0),
+                "count": r.get("count", 0),
+                "type": "individual",
+            })
+        print(f"[openfec] Got {len(results)} top employers for {candidate_id}")
+        return results[:limit]
+    except Exception as e:
+        print(f"[openfec] Error fetching top employers: {e}")
+        return []
 
 
 async def get_independent_expenditures(

@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 from api import legislators, openfec, congress_gov, whoboughtmyrep, events
-from api import guardian, news, ai_summary
+from api import guardian, news, ai_summary, stance_analysis, promises
 from api.alerts_router import router as alerts_router
 import config
 
@@ -137,7 +137,7 @@ async def get_rep_detail(bioguide_id: str):
         funding = await openfec.get_candidate_totals(fec_ids[0])
         top_contributors = await openfec.get_top_contributors(fec_ids[0])
 
-    votes = await congress_gov.get_member_votes(bioguide_id)
+    votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id"))
     sponsored = await congress_gov.get_sponsored_bills(bioguide_id, limit=5)
 
     return {
@@ -164,8 +164,12 @@ async def get_funding_detail(bioguide_id: str):
 
     fec_ids = leg.get("fec_ids", [])
     fec_totals = {}
+    top_employers = []
     if fec_ids:
-        fec_totals = await openfec.get_candidate_totals(fec_ids[0])
+        fec_totals, top_employers = await asyncio.gather(
+            openfec.get_candidate_totals(fec_ids[0]),
+            openfec.get_top_employers(fec_ids[0]),
+        )
 
     wbmr_data = await whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
 
@@ -178,7 +182,7 @@ async def get_funding_detail(bioguide_id: str):
         },
         "fec_totals": fec_totals,
         "industry_breakdown": (wbmr_data.get("top_industries", []) if wbmr_data else []),
-        "top_donors": [],  # Pro tier only on WBMR
+        "top_donors": top_employers,
         "pac_vs_individual": {
             "pac_total": fec_totals.get("total_pac_contributions", 0),
             "individual_total": fec_totals.get("total_individual_contributions", 0),
@@ -213,7 +217,8 @@ async def get_voting_record(
     limit: int = 20,
 ):
     """Get voting record for a representative."""
-    votes = await congress_gov.get_member_votes(bioguide_id)
+    leg = await legislators.get_by_bioguide(bioguide_id)
+    votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id") if leg else None)
 
     if category:
         votes = [v for v in votes if v.get("category", "").lower() == category.lower()]
@@ -260,8 +265,10 @@ async def get_events(
 
 
 @app.get("/api/events/article", tags=["events"])
-async def get_event_article(q: str = Query(..., min_length=3)):
+async def get_event_article(q: str = Query(default="")):
     """Find the most relevant news article for a committee hearing (NewsAPI primary, Guardian fallback)."""
+    if not q or len(q.strip()) < 3:
+        return {"article": None}
     article = await news.search_article(q)
     if article is None:
         article = await guardian.search_article(q)
@@ -270,13 +277,15 @@ async def get_event_article(q: str = Query(..., min_length=3)):
 
 @app.get("/api/events/summary", tags=["events"])
 async def get_event_summary(
-    title: str = Query(..., min_length=3),
+    title: str = Query(default=""),
     chamber: str = Query(""),
     meeting_type: str = Query(""),
     committee: str = Query(""),
     bills: str = Query(""),
 ):
     """Generate an AI plain-English summary for a committee meeting."""
+    if not title or len(title.strip()) < 3:
+        return {"summary": None}
     summary = await ai_summary.get_event_summary(title, chamber, meeting_type, committee, bills)
     return {"summary": summary}
 
@@ -289,24 +298,28 @@ async def get_event_summary(
 async def get_full_profile(bioguide_id: str):
     """Full politician profile combining all data sources."""
     leg_task = legislators.get_by_bioguide(bioguide_id)
-    votes_task = congress_gov.get_member_votes(bioguide_id)
     sponsored_task = congress_gov.get_sponsored_bills(bioguide_id, limit=5)
     wbmr_task = whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
 
-    leg, votes, sponsored, wbmr = await asyncio.gather(
-        leg_task, votes_task, sponsored_task, wbmr_task
-    )
+    leg, sponsored, wbmr = await asyncio.gather(leg_task, sponsored_task, wbmr_task)
 
     if not leg:
         raise HTTPException(404, f"Legislator not found: {bioguide_id}")
 
+    votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id"))
+
     fec_totals = {}
+    top_employers = []
     fec_ids = leg.get("fec_ids", [])
     if fec_ids:
-        fec_totals = await openfec.get_candidate_totals(fec_ids[0])
+        fec_totals, top_employers = await asyncio.gather(
+            openfec.get_candidate_totals(fec_ids[0]),
+            openfec.get_top_employers(fec_ids[0]),
+        )
 
     funding = whoboughtmyrep.normalize_rep_funding(wbmr)
     funding["individual_total"] = fec_totals.get("total_individual_contributions", 0)
+    funding["top_donors"] = top_employers
 
     if not wbmr and fec_totals:
         funding["total_raised"] = fec_totals.get("total_receipts", 0)
@@ -333,6 +346,69 @@ async def get_full_profile(bioguide_id: str):
             "office": leg.get("office", ""),
             "contact_form": leg.get("contact_form", ""),
         },
+    }
+
+
+# ============================================================
+# STANCES  -  /api/profile/{id}/stances
+# ============================================================
+
+@app.get("/api/profile/{bioguide_id}/promises", tags=["composite"])
+async def get_promises(bioguide_id: str):
+    """Scrape rep's official .gov site for stated positions, score against voting record. Requires OPENAI_API_KEY."""
+    leg_task = legislators.get_by_bioguide(bioguide_id)
+    sponsored_task = congress_gov.get_sponsored_bills(bioguide_id, limit=8)
+    leg, sponsored = await asyncio.gather(leg_task, sponsored_task)
+
+    if not leg:
+        raise HTTPException(404, f"Legislator not found: {bioguide_id}")
+
+    votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id"))
+
+    result = await promises.get_promises(
+        bioguide_id=bioguide_id,
+        name=leg.get("name", ""),
+        party=leg.get("party", ""),
+        chamber=leg.get("chamber", ""),
+        website=leg.get("website", ""),
+        votes=votes,
+        sponsored_bills=sponsored,
+    )
+
+    return {
+        "promises": (result or {}).get("promises"),
+        "source_url": (result or {}).get("source_url") or leg.get("website", ""),
+        "ai_available": bool(config.OPENAI_API_KEY),
+        "scraped": result is not None,
+        "legislator": leg.get("name", ""),
+    }
+
+
+@app.get("/api/profile/{bioguide_id}/stances", tags=["composite"])
+async def get_stances(bioguide_id: str):
+    """AI-analyzed voting positions for a legislator. Requires OPENAI_API_KEY."""
+    leg_task = legislators.get_by_bioguide(bioguide_id)
+    sponsored_task = congress_gov.get_sponsored_bills(bioguide_id, limit=8)
+    leg, sponsored = await asyncio.gather(leg_task, sponsored_task)
+
+    if not leg:
+        raise HTTPException(404, f"Legislator not found: {bioguide_id}")
+
+    votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id"))
+
+    stances = await stance_analysis.get_stance_analysis(
+        bioguide_id=bioguide_id,
+        name=leg.get("name", ""),
+        party=leg.get("party", ""),
+        chamber=leg.get("chamber", ""),
+        votes=votes,
+        sponsored_bills=sponsored,
+    )
+
+    return {
+        "stances": stances,
+        "ai_available": stances is not None,
+        "legislator": leg.get("name", ""),
     }
 
 

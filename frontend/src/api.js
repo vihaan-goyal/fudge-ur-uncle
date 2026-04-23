@@ -91,6 +91,12 @@ export const api = {
   getEventArticle: (title) =>
     apiRequest(`/api/events/article?q=${encodeURIComponent(title)}`),
 
+  getStances: (bioguideId) =>
+    apiRequest(`/api/profile/${encodeURIComponent(bioguideId)}/stances`),
+
+  getPromises: (bioguideId) =>
+    apiRequest(`/api/profile/${encodeURIComponent(bioguideId)}/promises`, { timeout: 90000 }),
+
   getEventSummary: (event) => {
     const params = new URLSearchParams({ title: event.title || "" });
     if (event.chamber) params.set("chamber", event.chamber);

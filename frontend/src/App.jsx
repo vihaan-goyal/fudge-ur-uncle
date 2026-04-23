@@ -48,8 +48,8 @@ const colors = {
   textMuted: "#5a6b85",     // soft slate-blue
 
   // Patriotic accent — toned-down, confident red (not alarm-red)
-  accent: "#c8102e",        // "Old Glory" red — classic, not scary
-  accentDim: "#c8102e1a",   // 10% tint for backgrounds
+  accent: "rgb(231 122 27)",    // orange main color
+  accentDim: "rgba(231,122,27,0.1)",
 
   // Status colors — warmer, friendlier versions
   green: "#2e8b57",         // sea green, more inviting than neon
@@ -755,7 +755,7 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
           {[
             { icon: "dollar", label: "Funding Breakdown", sub: f.top_industries?.length ? `Top: ${f.top_industries[0].industry}` : "View details", screen: SCREENS.FUNDING },
             { icon: "vote", label: "Voting Record", sub: `${v.total_tracked} recent votes`, screen: SCREENS.VOTING_HISTORY },
-            { icon: "star", label: "Promise Scorecard", sub: "Coming soon", screen: SCREENS.PROMISE_SCORING },
+            { icon: "star", label: "Voting Positions", sub: "AI stance analysis", screen: SCREENS.PROMISE_SCORING },
             { icon: "clock", label: "Activity Timeline", sub: "Recent events", screen: SCREENS.TIMELINE },
             { icon: "phone", label: "Contact / Take Action", sub: p.phone || "Reach out", screen: SCREENS.TAKE_ACTION },
           ].map((item) => (
@@ -844,7 +844,7 @@ const FundingScreen = ({ onNav, profileData }) => {
           </div>
         )}
 
-        <p style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Source: OpenFEC & WhoBoughtMyRep. Updated regularly.</p>
+        <p style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Source: OpenFEC (FEC filings). Top donors aggregated by employer using same methodology as OpenSecrets.</p>
       </div>
       <NavBar active={SCREENS.SEARCH} onNav={onNav} />
     </div>
@@ -897,27 +897,154 @@ const VotingHistoryScreen = ({ onNav, profileData }) => {
   );
 };
 
-// 10. PROMISE SCORING - Placeholder (backend feature)
-const PromiseScoringScreen = ({ onNav, profileData }) => {
+// 10. STANCE ANALYSIS - AI-powered voting position analysis
+const SCORE_STYLE = {
+  CONSISTENT:   { bg: colors.greenDim,  border: colors.green  + "55", color: colors.green  },
+  INCONSISTENT: { bg: colors.redDim,    border: colors.red    + "55", color: colors.red    },
+  MIXED:        { bg: colors.yellowDim, border: colors.yellow + "55", color: colors.yellow },
+  PENDING:      { bg: colors.blueDim,   border: colors.blue   + "55", color: colors.textMuted },
+};
+
+const PROMISE_STYLE = {
+  KEPT:    { bg: colors.greenDim,  border: colors.green  + "55", color: colors.green  },
+  BROKEN:  { bg: colors.redDim,    border: colors.red    + "55", color: colors.red    },
+  PARTIAL: { bg: colors.yellowDim, border: colors.yellow + "55", color: colors.yellow },
+  UNCLEAR: { bg: colors.blueDim,   border: colors.blue   + "55", color: colors.textMuted },
+};
+
+const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
   const p = profileData?.profile || SAMPLE.profile.profile;
+  const id = bioguideId || p.bioguide_id;
+
+  const { data, loading, offline } = useApi(
+    () => id ? api.getStances(id) : Promise.resolve(null),
+    [id],
+    null
+  );
+
+  const { data: promiseData, loading: promiseLoading } = useApi(
+    () => id ? api.getPromises(id) : Promise.resolve(null),
+    [id],
+    null
+  );
+
+  const stances = data?.stances || null;
+  const aiAvailable = data?.ai_available ?? true;
+  const promises = promiseData?.promises || null;
+  const promiseSourceUrl = promiseData?.source_url || p.website || "";
+
+  const renderStanceCard = (stance, i) => {
+    const score = stance.score || "PENDING";
+    const st = SCORE_STYLE[score] || SCORE_STYLE.PENDING;
+    return (
+      <div key={i} style={{ ...s.card, marginBottom: 10, borderColor: st.border, background: st.bg }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>{stance.topic}</div>
+          <div style={{
+            fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.8,
+            color: st.color, background: colors.surface,
+            border: `1px solid ${st.border}`, borderRadius: 4, padding: "2px 6px",
+          }}>{score}</div>
+        </div>
+        <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>{stance.stance}</div>
+        {stance.evidence && (
+          <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4, borderTop: `1px solid ${colors.border}`, paddingTop: 6 }}>
+            {stance.evidence}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPromiseCard = (promise, i) => {
+    const status = promise.status || "UNCLEAR";
+    const st = PROMISE_STYLE[status] || PROMISE_STYLE.UNCLEAR;
+    return (
+      <div key={i} style={{ ...s.card, marginBottom: 10, borderColor: st.border, background: st.bg }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>{promise.topic}</div>
+          <div style={{
+            fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.8,
+            color: st.color, background: colors.surface,
+            border: `1px solid ${st.border}`, borderRadius: 4, padding: "2px 6px",
+          }}>{status}</div>
+        </div>
+        <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>{promise.promise}</div>
+        {promise.evidence && (
+          <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4, borderTop: `1px solid ${colors.border}`, paddingTop: 6 }}>
+            {promise.evidence}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
-      <StatusBar />
+      <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>Promise Scorecard</h2>
-        <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>Coming Soon</div>
-          <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-            Promise tracking requires curating campaign statements and cross-referencing them with votes. We're building this database now.
-          </div>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Voting Positions</h2>
+        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+          AI-analyzed from actual votes and sponsored legislation
         </div>
-        <div style={{ ...s.card, marginTop: 12 }}>
-          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 6 }}>METHODOLOGY</div>
-          <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-            Promises will be sourced from campaign speeches, websites, and ads, then cross-referenced against actual votes from Congress.gov. Each promise gets scored as KEPT, BROKEN, PARTIAL, or PENDING.
+
+        {loading && <Loading label="Analyzing voting record…" />}
+
+        {!loading && !aiAvailable && (
+          <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>OpenAI key not configured</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+              Add <span style={{ fontFamily: font }}>OPENAI_API_KEY</span> to <span style={{ fontFamily: font }}>backend/.env</span> to enable AI stance analysis.
+            </div>
           </div>
-        </div>
+        )}
+
+        {!loading && aiAvailable && (
+          <>
+            <div style={s.sectionTitle}>Stated Promises vs Voting Record</div>
+            {promiseLoading && <Loading label="Scraping official site…" />}
+            {!promiseLoading && promises && promises.length > 0 && (
+              <>
+                {promises.map(renderPromiseCard)}
+                {promiseSourceUrl && (
+                  <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginBottom: 16, lineHeight: 1.5 }}>
+                    Promises extracted from <a href={promiseSourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{promiseSourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.
+                  </div>
+                )}
+              </>
+            )}
+            {!promiseLoading && (!promises || promises.length === 0) && (
+              <div style={{ ...s.card, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: colors.textMuted }}>
+                  No public promises found on official site. Some legislators publish few stated positions, or use JS-rendered pages we can't read.
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {!loading && aiAvailable && stances && stances.length > 0 && (
+          <>
+            <div style={s.sectionTitle}>Key Positions ({stances.length})</div>
+            {stances.map(renderStanceCard)}
+            <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+              Scores reflect voting record consistency, not campaign promises. Analysis powered by GPT-4o-mini.
+            </div>
+          </>
+        )}
+
+        {!loading && aiAvailable && stances && stances.length === 0 && (
+          <div style={{ ...s.card }}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>Not enough voting data to analyze positions yet.</div>
+          </div>
+        )}
+
+        {!loading && aiAvailable && !stances && !offline && (
+          <div style={{ ...s.card }}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>Could not load stance analysis. Try again later.</div>
+          </div>
+        )}
       </div>
       <NavBar active={SCREENS.SEARCH} onNav={onNav} />
     </div>
@@ -1549,7 +1676,7 @@ export default function App() {
       case SCREENS.POLITICIAN_PROFILE: return <PoliticianProfileScreen {...common} bioguideId={selectedBioguideId} onSetProfileData={setProfileData} />;
       case SCREENS.FUNDING: return <FundingScreen {...common} profileData={profileData} />;
       case SCREENS.VOTING_HISTORY: return <VotingHistoryScreen {...common} profileData={profileData} />;
-      case SCREENS.PROMISE_SCORING: return <PromiseScoringScreen {...common} profileData={profileData} />;
+      case SCREENS.PROMISE_SCORING: return <PromiseScoringScreen {...common} bioguideId={selectedBioguideId} profileData={profileData} />;
       case SCREENS.TIMELINE: return <TimelineScreen {...common} profileData={profileData} />;
       case SCREENS.TAKE_ACTION: return <TakeActionScreen {...common} profileData={profileData} />;
       case SCREENS.CONTACT_REP: return <ContactRepScreen {...common} userState={userState} />;

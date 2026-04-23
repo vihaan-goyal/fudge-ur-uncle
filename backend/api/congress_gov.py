@@ -8,9 +8,56 @@ Covers: bills, amendments, roll-call votes, member info,
         cosponsors, summaries, actions.
 """
 
+import re
 import httpx
 from typing import Optional
 from config import CONGRESS_GOV_BASE, DATA_GOV_API_KEY
+
+
+# Symbolic / procedural votes that AI scorers should ignore — non-binding
+# resolutions, motions, and "expressing the sense of" statements aren't
+# policy decisions and produce false signal when matched against promises/stances.
+_SYMBOLIC_PATTERNS = re.compile(
+    r"\b(H\.?\s*Res\.?|S\.?\s*Res\.?|H\.?\s*Con\.?\s*Res\.?|S\.?\s*Con\.?\s*Res\.?|"
+    r"motion to proceed|motion to table|quorum|cloture|on the journal|"
+    r"expressing (the )?sense of|expressing support for|expressing (the )?gratitude)",
+    re.IGNORECASE,
+)
+
+
+def is_substantive_vote(title: str) -> bool:
+    """True if a vote title looks like a real policy bill (not a resolution or procedural motion)."""
+    return bool(title) and not _SYMBOLIC_PATTERNS.search(title)
+
+
+def format_vote_lines(votes: list[dict], limit: int = 20) -> str:
+    """Format a vote list for AI consumption. Filters symbolic/procedural votes."""
+    lines = []
+    for v in votes:
+        title = v.get("title") or v.get("bill") or ""
+        if not is_substantive_vote(title):
+            continue
+        date = v.get("date", "")
+        member_vote = v.get("member_vote", "")
+        category = v.get("category", "")
+        line = f"- {date}: {title} — voted {member_vote}"
+        if category:
+            line += f" [{category}]"
+        lines.append(line)
+        if len(lines) >= limit:
+            break
+    return "\n".join(lines) if lines else "(none available)"
+
+
+def format_bill_lines(bills: list[dict], limit: int = 8) -> str:
+    """Format a sponsored-bill list for AI consumption."""
+    lines = []
+    for b in bills[:limit]:
+        title = b.get("title") or b.get("number", "")
+        number = b.get("number", "")
+        if title:
+            lines.append(f"- {number}: {title}" if number else f"- {title}")
+    return "\n".join(lines) if lines else "(none available)"
 
 
 # -- Embedded sample data for offline dev --
@@ -166,37 +213,45 @@ async def get_recent_votes(
 
 
 async def get_member_votes(
-    bioguide_id: str, congress: int = 119, limit: int = 20
+    bioguide_id: str, govtrack_id: int = None, limit: int = 20
 ) -> list[dict]:
-    """Get how a specific member voted. Uses Congress.gov /member/{id}/votes."""
+    """Get how a specific member voted. Uses GovTrack API (free, no key needed)."""
+    if not govtrack_id:
+        return SAMPLE_VOTES
+
     try:
-        data = await _get(f"/member/{bioguide_id}/votes", {"limit": limit, "congress": congress})
-        raw_votes = data.get("votes", [])
-        if not raw_votes:
-            print(f"[congress] No votes returned for {bioguide_id}, using sample data")
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                "https://www.govtrack.us/api/v2/vote_voter",
+                params={"person": govtrack_id, "limit": limit, "order_by": "-created"},
+            )
+            resp.raise_for_status()
+            objects = resp.json().get("objects", [])
+
+        if not objects:
             return SAMPLE_VOTES
 
         results = []
-        for v in raw_votes:
-            leg = v.get("legislation") or {}
-            vote_str = (v.get("memberVoted") or "").capitalize()
+        for v in objects:
+            vote = v.get("vote", {})
+            option = v.get("option", {})
             results.append({
-                "roll_call": v.get("rollNumber"),
-                "congress": v.get("congress"),
-                "chamber": (v.get("chamber") or "").capitalize(),
-                "date": v.get("date", ""),
-                "bill": f"{leg.get('type','')}.{leg.get('number','')}".strip("."),
-                "title": leg.get("title", v.get("description", "")),
-                "result": v.get("result", ""),
-                "yea_total": v.get("yeaTotal"),
-                "nay_total": v.get("nayTotal"),
-                "member_vote": vote_str,
-                "category": "",
+                "roll_call": vote.get("number"),
+                "congress": vote.get("congress"),
+                "chamber": vote.get("chamber_label", ""),
+                "date": (vote.get("created") or "")[:10],
+                "bill": "",
+                "title": vote.get("question", ""),
+                "result": vote.get("result", ""),
+                "yea_total": vote.get("total_plus"),
+                "nay_total": vote.get("total_minus"),
+                "member_vote": option.get("value", ""),
+                "category": vote.get("category_label", vote.get("category", "")),
             })
-        print(f"[congress] Fetched {len(results)} real votes for {bioguide_id}")
+        print(f"[govtrack] Fetched {len(results)} votes for govtrack:{govtrack_id}")
         return results
     except Exception as e:
-        print(f"[congress] Member votes error ({e}), using sample data")
+        print(f"[govtrack] Vote fetch failed ({e}), using sample data")
         return SAMPLE_VOTES
 
 

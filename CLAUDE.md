@@ -20,10 +20,17 @@ fudge-ur-uncle-full/
 │   │   ├── news.py               # NewsAPI.org - US news article search (primary)
 │   │   ├── guardian.py           # The Guardian API - news article search (fallback)
 │   │   ├── ai_summary.py         # OpenAI GPT-4o-mini - plain-English event summaries
+│   │   ├── stance_analysis.py    # OpenAI GPT-4o-mini - per-legislator policy stance analysis
 │   │   └── alerts_router.py      # /api/alerts/* endpoints
 │   └── alerts/        # alert generation pipeline
+│       ├── config.py             # alert pipeline tuning (thresholds, lookback windows)
+│       ├── industry_map.py       # industry <-> vote category topic-match table
+│       ├── scoring.py            # signals-based alert scoring formula (T,V,D,R,A,N)
 │       ├── ingest_fec.py         # pulls FEC donations into DB
 │       ├── pac_classifier.py     # tags PACs by industry
+│       ├── reclassify.py         # re-runs classifier on existing donation rows
+│       ├── inspect_unknowns.py   # debug: lists top unclassified PACs
+│       ├── debug_fec.py          # debug: probes FEC responses during ingest
 │       ├── pipeline.py           # generates alerts from donations + votes
 │       └── seed.py               # seed data for dev
 └── frontend/          # React + Vite app
@@ -32,7 +39,7 @@ fudge-ur-uncle-full/
     └── src/
         ├── main.jsx              # entry
         ├── api.js                # fetch wrapper + endpoint methods
-        └── App.jsx               # all 19 screens + routing (single file)
+        └── App.jsx               # all 18 screens + routing (single file)
 ```
 
 ## Run Commands
@@ -59,6 +66,7 @@ python -m backend.db                              # init schema
 python -m backend.alerts.seed                     # seed legislators + scheduled votes
 python -m backend.alerts.ingest_fec --state CT    # pull real FEC donations
 python -m backend.alerts.pipeline                 # generate alerts
+python -m backend.alerts.reclassify --only-unknown   # re-tag PACs after editing pac_classifier.py
 ```
 
 ## Environment
@@ -91,12 +99,16 @@ The health endpoint `GET /` reports which keys are configured.
 
 **News query extraction** (`backend/api/news.py` and `guardian.py`) strips congressional boilerplate from hearing titles to build focused search queries — pulls topic after `:` or `on`, extracts named acts from markups, appends "Congress" if no political signal word present.
 
+**Stance analysis is AI-derived from real votes.** `GET /api/profile/{bioguide_id}/stances` pulls the legislator's recent votes + sponsored bills and asks GPT-4o-mini to identify 4-6 policy areas with a `topic`/`stance`/`evidence`/`score` shape (CONSISTENT, INCONSISTENT, MIXED, PENDING). Requires `OPENAI_API_KEY`; returns `{"stances": null, "ai_available": false}` if missing. Cached in-process per bioguide_id. See `backend/api/stance_analysis.py`.
+
+**Alert scoring is a documented formula, not a heuristic.** `backend/alerts/scoring.py` computes `S = (T*V) * (alpha*D + beta*R + gamma*A) * (1 + delta*N)` where T=topic match, V=vote proximity, D=donation magnitude, R=recency, A=anomaly z-score, N=news salience. Topic match uses the table in `industry_map.py`. Thresholds: S>0.3 → alert, S>0.6 → urgent. All intermediate signals are stored on the alert for explainability.
+
 ## Conventions
 
 - Backend: `async`/`await` everywhere, `httpx.AsyncClient` for outbound calls, retry with exponential backoff on 429s.
 - All endpoints return JSON with consistent shapes. Add new ones to `server.py` next to similar existing endpoints.
 - New external APIs go in `backend/api/` as their own module, then composed in `server.py`.
-- Frontend is intentionally a single `App.jsx` file - all 17 screens, styles via inline `style={s.foo}` objects against a shared `s` style map. Don't split this up casually; the single-file structure was a deliberate choice.
+- Frontend is intentionally a single `App.jsx` file - all 18 screens, styles via inline `style={s.foo}` objects against a shared `s` style map. Don't split this up casually; the single-file structure was a deliberate choice.
 - Frontend screens are switched via a `currentScreen` state + `SCREENS` enum, not React Router.
 
 ## Gotchas
@@ -109,6 +121,6 @@ The health endpoint `GET /` reports which keys are configured.
 
 ## Status (April 2026)
 
-Wired and live: dashboard, search, profile, funding, voting history, timeline, take-action, contact reps, settings, alerts (when pipeline has run), events + event detail (real Congress.gov committee meetings, NewsAPI news articles, OpenAI plain-English summaries).
+Wired and live: dashboard, search, profile, funding, voting history, timeline, take-action, contact reps, settings, alerts (when pipeline has run), events + event detail (real Congress.gov committee meetings, NewsAPI news articles, OpenAI plain-English summaries), AI stance analysis on profile screen (when `OPENAI_API_KEY` is set).
 
 Still placeholder / sample data only: promise scoring.
