@@ -162,30 +162,41 @@ async def get_recent_votes(
     We use the bill actions + vote endpoints.
     For a better pre-built experience, ProPublica Congress API is recommended.
     """
-    # Congress.gov API doesn't have a clean "recent votes" endpoint like ProPublica
-    # For MVP, return sample data and note the integration path
-    print("[congress] Note: For production vote data, use ProPublica Congress API")
     return SAMPLE_VOTES[:limit]
 
 
 async def get_member_votes(
-    bioguide_id: str, congress: int = 119
+    bioguide_id: str, congress: int = 119, limit: int = 20
 ) -> list[dict]:
-    """
-    Get how a specific member voted on recent bills.
-    
-    This requires cross-referencing vote roll calls with member positions.
-    For MVP, returns sample data. Production should use ProPublica's
-    /members/{member_id}/votes endpoint.
-    """
+    """Get how a specific member voted. Uses Congress.gov /member/{id}/votes."""
     try:
-        # Congress.gov doesn't have a direct member-votes endpoint yet
-        # The House Roll Call Votes endpoint was added in beta mid-2025
-        # For now, fall back to sample
-        print(f"[congress] Member votes for {bioguide_id} - using sample data")
-        return SAMPLE_VOTES
+        data = await _get(f"/member/{bioguide_id}/votes", {"limit": limit, "congress": congress})
+        raw_votes = data.get("votes", [])
+        if not raw_votes:
+            print(f"[congress] No votes returned for {bioguide_id}, using sample data")
+            return SAMPLE_VOTES
+
+        results = []
+        for v in raw_votes:
+            leg = v.get("legislation") or {}
+            vote_str = (v.get("memberVoted") or "").capitalize()
+            results.append({
+                "roll_call": v.get("rollNumber"),
+                "congress": v.get("congress"),
+                "chamber": (v.get("chamber") or "").capitalize(),
+                "date": v.get("date", ""),
+                "bill": f"{leg.get('type','')}.{leg.get('number','')}".strip("."),
+                "title": leg.get("title", v.get("description", "")),
+                "result": v.get("result", ""),
+                "yea_total": v.get("yeaTotal"),
+                "nay_total": v.get("nayTotal"),
+                "member_vote": vote_str,
+                "category": "",
+            })
+        print(f"[congress] Fetched {len(results)} real votes for {bioguide_id}")
+        return results
     except Exception as e:
-        print(f"[congress] Error: {e}")
+        print(f"[congress] Member votes error ({e}), using sample data")
         return SAMPLE_VOTES
 
 
