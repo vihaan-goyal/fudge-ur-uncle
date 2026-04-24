@@ -24,6 +24,7 @@ const SCREENS = {
   LEARN_TO_VOTE: "learn_to_vote",
   SETTINGS: "settings",
   ALERTS: "alerts",
+  STATE_REPS: "state_reps",
 };
 
 const ISSUES = [
@@ -598,6 +599,7 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
               { icon: "vote", label: "Voting Guide", screen: SCREENS.LEARN_TO_VOTE },
               { icon: "calendar", label: "Local Events", screen: SCREENS.EVENTS },
               { icon: "dollar", label: "Follow Money", screen: SCREENS.SEARCH },
+              { icon: "home", label: "State Legislators", screen: SCREENS.STATE_REPS },
             ].map((a) => (
               <button key={a.label} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginBottom: 0 }} onClick={() => onNav(a.screen)}>
                 <Icon type={a.icon} size={16} color={colors.accent} />
@@ -1635,6 +1637,84 @@ const SettingsScreen = ({ onNav, userState, onSetState }) => {
 };
 
 // ============================================================
+// STATE LEGISLATORS (Legiscan)
+// ============================================================
+
+const StateRepsScreen = ({ onNav, userState }) => {
+  const { data, loading, error, offline, reload } = useApi(
+    () => api.getStateRepsByState(userState || "CT"),
+    [userState],
+    { representatives: SAMPLE.stateReps, state: userState || "CT", count: SAMPLE.stateReps.length, source: "sample" }
+  );
+
+  const reps = data?.representatives || [];
+  const source = data?.source || "sample";
+
+  const senate = reps.filter((r) => r.chamber === "Senate");
+  const house = reps.filter((r) => r.chamber === "House");
+  const other = reps.filter((r) => r.chamber !== "Senate" && r.chamber !== "House");
+
+  const renderCard = (r) => (
+    <div key={r.people_id} style={{ ...s.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+      <Avatar name={r.name} size={36} party={r.party} />
+      <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>{r.name}</span>
+          <PartyBadge party={r.party} />
+        </div>
+        <div style={{ fontSize: 11, color: colors.textMuted }}>
+          {r.chamber || r.role} · {r.district}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={s.header}>
+        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>State Legislators</h1>
+        <p style={s.headerSub}>
+          {userState || "CT"} · {reps.length} members
+          {source === "sample" && " · sample data"}
+        </p>
+      </div>
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} label="Dashboard" />
+        {loading && <Loading label="Loading state legislators..." />}
+        {error && <ErrorBanner error={error} onRetry={reload} />}
+        {!loading && !error && reps.length === 0 && (
+          <div style={{ ...s.card, textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>
+              No state legislators found for {userState}. Set LEGISCAN_API_KEY in the backend .env to pull real data.
+            </div>
+          </div>
+        )}
+        {!loading && !error && senate.length > 0 && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>State Senate ({senate.length})</div>
+            {senate.map(renderCard)}
+          </div>
+        )}
+        {!loading && !error && house.length > 0 && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>State House ({house.length})</div>
+            {house.map(renderCard)}
+          </div>
+        )}
+        {!loading && !error && other.length > 0 && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>Other ({other.length})</div>
+            {other.map(renderCard)}
+          </div>
+        )}
+      </div>
+      <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+    </div>
+  );
+};
+
+// ============================================================
 // MAIN APP
 // ============================================================
 
@@ -1684,6 +1764,7 @@ export default function App() {
       case SCREENS.EVENT_DETAIL: return <EventDetailScreen {...common} event={selectedEvent} />;
       case SCREENS.LEARN_TO_VOTE: return <LearnToVoteScreen {...common} userState={userState} />;
       case SCREENS.ALERTS: return <AlertsScreen {...common} />;
+      case SCREENS.STATE_REPS: return <StateRepsScreen {...common} userState={userState} />;
       case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSetState={setUserState} />;
       default: return <SplashScreen {...common} />;
     }
@@ -1708,6 +1789,7 @@ export default function App() {
     [SCREENS.EVENT_DETAIL, "Event Detail"],
     [SCREENS.LEARN_TO_VOTE, "Learn to Vote"],
     [SCREENS.ALERTS, "Alerts"],
+    [SCREENS.STATE_REPS, "State Reps"],
     [SCREENS.SETTINGS, "Settings"],
   ];
 

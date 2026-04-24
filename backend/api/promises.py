@@ -18,8 +18,7 @@ import openai
 
 from config import OPENAI_API_KEY
 from api.congress_gov import format_vote_lines, format_bill_lines
-
-_cache: dict = {}
+from api import ai_cache
 
 # Common URL paths used by congressional .gov sites for issue/priority pages.
 # We try these in addition to the homepage. Most reps use one or two of these.
@@ -113,8 +112,9 @@ async def get_promises(
     if not OPENAI_API_KEY:
         return None
 
-    if bioguide_id in _cache:
-        return _cache[bioguide_id]
+    cached = ai_cache.get(f"promises:{bioguide_id}")
+    if cached is not None:
+        return cached
 
     site_text = await scrape_site(website)
     if len(site_text) < 400:
@@ -177,7 +177,7 @@ async def get_promises(
             "source_url": website,
             "scraped_chars": len(site_text),
         }
-        _cache[bioguide_id] = result
+        ai_cache.set(f"promises:{bioguide_id}", result)
         print(f"[promises] {bioguide_id}: extracted {len(promises)} promises from {len(site_text)} chars")
         return result
     except Exception as e:

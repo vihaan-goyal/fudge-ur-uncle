@@ -3,8 +3,7 @@ import json
 import openai
 from config import OPENAI_API_KEY
 from api.congress_gov import format_vote_lines, format_bill_lines
-
-_cache: dict = {}
+from api import ai_cache
 
 SAMPLE_STANCES = [
     {
@@ -45,8 +44,9 @@ async def get_stance_analysis(
     if not OPENAI_API_KEY:
         return None
 
-    if bioguide_id in _cache:
-        return _cache[bioguide_id]
+    cached = ai_cache.get(f"stances:{bioguide_id}")
+    if cached is not None:
+        return cached
 
     party_label = {"D": "Democrat", "R": "Republican", "I": "Independent"}.get(party, party)
 
@@ -80,7 +80,7 @@ async def get_stance_analysis(
         stances = parsed if isinstance(parsed, list) else parsed.get("stances") or next(iter(parsed.values()), [])
         if not isinstance(stances, list) or not stances:
             return None
-        _cache[bioguide_id] = stances
+        ai_cache.set(f"stances:{bioguide_id}", stances)
         print(f"[stance_analysis] Generated {len(stances)} stances for {bioguide_id}")
         return stances
     except Exception as e:

@@ -40,6 +40,12 @@ export const api = {
   getRepsByState: (state) =>
     apiRequest(`/api/reps/by-state/${encodeURIComponent(state)}`),
 
+  getStateRepsByState: (state) =>
+    apiRequest(`/api/state-reps/by-state/${encodeURIComponent(state)}`),
+
+  getStateRep: (peopleId) =>
+    apiRequest(`/api/state-reps/${encodeURIComponent(peopleId)}`),
+
   getRepFundingLite: (bioguideId) =>
     apiRequest(`/api/reps/${encodeURIComponent(bioguideId)}/funding-lite`),
 
@@ -214,6 +220,12 @@ export const SAMPLE = {
       office: "136 Hart Senate Office Building",
     },
   },
+
+  stateReps: [
+    { people_id: 9001, name: "Martin M. Looney", party: "D", role: "Sen", district: "SD-11", state: "CT", chamber: "Senate" },
+    { people_id: 9002, name: "Matt Ritter", party: "D", role: "Rep", district: "HD-1", state: "CT", chamber: "House" },
+    { people_id: 9003, name: "Vincent Candelora", party: "R", role: "Rep", district: "HD-86", state: "CT", chamber: "House" },
+  ],
 
   events: [
     { id: 1, title: "Town Hall: Sen. Murphy on Healthcare", date: "Apr 22, 2026", time: "6:00 PM", location: "Hartford City Hall", type: "town_hall" },

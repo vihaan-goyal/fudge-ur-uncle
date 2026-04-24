@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 from api import legislators, openfec, congress_gov, whoboughtmyrep, events
-from api import guardian, news, ai_summary, stance_analysis, promises
+from api import guardian, news, ai_summary, stance_analysis, promises, legiscan
 from api.alerts_router import router as alerts_router
 import config
 
@@ -149,6 +149,31 @@ async def get_rep_detail(bioguide_id: str):
         "voting_record": votes,
         "sponsored_bills": sponsored,
     }
+
+
+# ============================================================
+# STATE REPRESENTATIVES  -  /api/state-reps (Legiscan)
+# ============================================================
+
+@app.get("/api/state-reps/by-state/{state}", tags=["state-reps"])
+async def get_state_reps_by_state(state: str):
+    """Get all current-session state legislators for a state via Legiscan."""
+    results = await legiscan.get_state_legislators(state.upper())
+    return {
+        "state": state.upper(),
+        "count": len(results),
+        "source": "legiscan" if config.LEGISCAN_API_KEY else "sample",
+        "representatives": results,
+    }
+
+
+@app.get("/api/state-reps/{people_id}", tags=["state-reps"])
+async def get_state_rep_detail(people_id: int):
+    """Get profile + sponsored bills for a state legislator via Legiscan."""
+    profile = await legiscan.get_legislator(people_id)
+    if not profile:
+        raise HTTPException(404, f"State legislator not found: {people_id}")
+    return profile
 
 
 # ============================================================
