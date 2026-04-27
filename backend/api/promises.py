@@ -96,7 +96,7 @@ async def scrape_site(website: str) -> str:
 
 
 async def get_promises(
-    bioguide_id: str,
+    cache_key: str,
     name: str,
     party: str,
     chamber: str,
@@ -112,13 +112,13 @@ async def get_promises(
     if not OPENAI_API_KEY:
         return None
 
-    cached = ai_cache.get(f"promises:{bioguide_id}")
+    cached = ai_cache.get(cache_key)
     if cached is not None:
         return cached
 
     site_text = await scrape_site(website)
     if len(site_text) < 400:
-        print(f"[promises] {bioguide_id}: not enough scraped text ({len(site_text)} chars)")
+        print(f"[promises] {cache_key}: not enough scraped text ({len(site_text)} chars)")
         return None
 
     party_label = {"D": "Democrat", "R": "Republican", "I": "Independent"}.get(party, party)
@@ -177,9 +177,9 @@ async def get_promises(
             "source_url": website,
             "scraped_chars": len(site_text),
         }
-        ai_cache.set(f"promises:{bioguide_id}", result)
-        print(f"[promises] {bioguide_id}: extracted {len(promises)} promises from {len(site_text)} chars")
+        ai_cache.set(cache_key, result)
+        print(f"[promises] {cache_key}: extracted {len(promises)} promises from {len(site_text)} chars")
         return result
     except Exception as e:
-        print(f"[promises] {bioguide_id} failed ({e})")
+        print(f"[promises] {cache_key} failed ({e})")
         return None

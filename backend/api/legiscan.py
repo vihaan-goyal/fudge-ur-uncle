@@ -5,12 +5,14 @@ Free tier is 30k requests/month + 1 req/sec, so we lean on ai_cache heavily.
 All Legiscan ops are GETs against https://api.legiscan.com/?key=KEY&op=NAME.
 
 Public functions:
-  - get_state_legislators(state) -> list[dict]  (normalized)
-  - get_legislator(people_id)   -> dict | None  (profile + sponsored bills)
+  - get_state_legislators(state)     -> list[dict]   (normalized)
+  - get_legislator(people_id)        -> dict | None  (profile + sponsored bills)
+  - get_legislator_votes(people_id)  -> list[dict]   (recent roll calls)
 
 Falls back to SAMPLE_STATE_LEGISLATORS when no API key is set or the
 upstream request fails, matching the rest of backend/api/*.
 """
+import asyncio
 import httpx
 
 from config import LEGISCAN_API_KEY, LEGISCAN_BASE
@@ -22,6 +24,11 @@ _TIMEOUT = 15.0
 _LIST_TTL_HOURS = 24 * 7
 # 24-hour TTL: sponsored bills update over time within a session.
 _PROFILE_TTL_HOURS = 24
+# 24-hour TTL: roll calls for a rep rarely change intra-day and vote fetching
+# is the most expensive Legiscan path (~2 calls per bill).
+_VOTES_TTL_HOURS = 24
+# How many of the rep's most-recent sponsored bills to probe for roll calls.
+_VOTES_BILL_LIMIT = 8
 
 
 # ---- Sample data for offline/no-key dev ---------------------------
@@ -225,3 +232,101 @@ async def get_legislator(people_id: int) -> dict | None:
     except Exception as e:
         print(f"[legiscan] person {people_id} unavailable ({e})")
         return SAMPLE_LEGISLATOR_PROFILE.get(people_id)
+
+
+async def get_legislator_votes(people_id: int) -> list[dict]:
+    """
+    Return recent roll-call votes for a state legislator, normalized to the
+    same shape as federal votes (title/date/member_vote/category) so the
+    shared formatters in api.congress_gov can consume them.
+
+    Strategy: fetch bill detail for the rep's most recent sponsored bills,
+    pick the latest roll call on each, and record how this legislator voted.
+    Cached 24h. Returns [] when no key, no bills, or on upstream failure.
+    """
+    try:
+        people_id = int(people_id)
+    except (TypeError, ValueError):
+        return []
+
+    cache_key = f"legiscan:votes:{people_id}"
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if not LEGISCAN_API_KEY:
+        return []
+
+    profile = await get_legislator(people_id)
+    if not profile:
+        return []
+
+    sponsored = [b for b in (profile.get("sponsored_bills") or []) if b.get("bill_id")]
+    sponsored = sponsored[:_VOTES_BILL_LIMIT]
+    if not sponsored:
+        ai_cache.set(cache_key, [], ttl_hours=_VOTES_TTL_HOURS)
+        return []
+
+    async def _bill(bill_id: int) -> dict:
+        try:
+            data = await _call("getBill", id=bill_id)
+            return data.get("bill") or {}
+        except Exception as e:
+            print(f"[legiscan] getBill({bill_id}) failed ({e})")
+            return {}
+
+    bill_details = await asyncio.gather(*[_bill(b["bill_id"]) for b in sponsored])
+
+    # For each bill with roll calls, take the newest one and record which
+    # roll-call id maps to which bill title.
+    rc_ids: list[int] = []
+    rc_meta: dict[int, tuple[str, str, str]] = {}
+    for bill in bill_details:
+        rc_list = bill.get("votes") or []
+        if not rc_list:
+            continue
+        rc = max(rc_list, key=lambda r: r.get("date", ""))
+        rc_id = rc.get("roll_call_id")
+        if not rc_id:
+            continue
+        rc_meta[rc_id] = (
+            bill.get("title", ""),
+            rc.get("date", ""),
+            rc.get("chamber", ""),
+        )
+        rc_ids.append(rc_id)
+
+    if not rc_ids:
+        ai_cache.set(cache_key, [], ttl_hours=_VOTES_TTL_HOURS)
+        return []
+
+    async def _roll_call(rc_id: int) -> dict:
+        try:
+            data = await _call("getRollCall", id=rc_id)
+            return data.get("roll_call") or {}
+        except Exception as e:
+            print(f"[legiscan] getRollCall({rc_id}) failed ({e})")
+            return {}
+
+    roll_calls = await asyncio.gather(*[_roll_call(rc_id) for rc_id in rc_ids])
+
+    results: list[dict] = []
+    for rc_id, rc in zip(rc_ids, roll_calls):
+        my_vote = next(
+            (v for v in (rc.get("votes") or []) if v.get("people_id") == people_id),
+            None,
+        )
+        if not my_vote:
+            continue
+        title, date, chamber = rc_meta[rc_id]
+        results.append({
+            "title": title,
+            "date": date or rc.get("date", ""),
+            "member_vote": my_vote.get("vote_text", ""),
+            "category": chamber or rc.get("chamber", ""),
+        })
+
+    results.sort(key=lambda r: r.get("date", ""), reverse=True)
+    ai_cache.set(cache_key, results, ttl_hours=_VOTES_TTL_HOURS)
+    print(f"[legiscan] votes for {people_id}: {len(results)} roll calls")
+    return results

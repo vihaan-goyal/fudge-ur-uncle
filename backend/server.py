@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 from api import legislators, openfec, congress_gov, whoboughtmyrep, events
-from api import guardian, news, ai_summary, stance_analysis, promises, legiscan
+from api import guardian, news, ai_summary, stance_analysis, promises, legiscan, state_sites
 from api.alerts_router import router as alerts_router
 import config
 
@@ -174,6 +174,85 @@ async def get_state_rep_detail(people_id: int):
     if not profile:
         raise HTTPException(404, f"State legislator not found: {people_id}")
     return profile
+
+
+@app.get("/api/state-reps/{people_id}/votes", tags=["state-reps"])
+async def get_state_rep_votes(people_id: int, limit: int = 20):
+    """Recent roll-call votes for a state legislator (Legiscan getBill + getRollCall)."""
+    profile = await legiscan.get_legislator(people_id)
+    if not profile:
+        raise HTTPException(404, f"State legislator not found: {people_id}")
+    votes = await legiscan.get_legislator_votes(people_id)
+    return {
+        "people_id": people_id,
+        "total_votes": len(votes),
+        "votes": votes[:limit],
+    }
+
+
+@app.get("/api/state-reps/{people_id}/stances", tags=["state-reps"])
+async def get_state_rep_stances(people_id: int):
+    """AI-analyzed voting positions for a state legislator. Requires OPENAI_API_KEY."""
+    profile = await legiscan.get_legislator(people_id)
+    if not profile:
+        raise HTTPException(404, f"State legislator not found: {people_id}")
+
+    votes = await legiscan.get_legislator_votes(people_id)
+    sponsored = profile.get("sponsored_bills") or []
+
+    stances = await stance_analysis.get_stance_analysis(
+        cache_key=f"stances:state:{people_id}",
+        name=profile.get("name", ""),
+        party=profile.get("party", ""),
+        chamber=profile.get("chamber", ""),
+        votes=votes,
+        sponsored_bills=sponsored,
+    )
+
+    return {
+        "stances": stances,
+        "ai_available": stances is not None,
+        "legislator": profile.get("name", ""),
+    }
+
+
+@app.get("/api/state-reps/{people_id}/promises", tags=["state-reps"])
+async def get_state_rep_promises(people_id: int):
+    """Scrape a state legislator's bio site for stated positions and score vs. votes."""
+    profile = await legiscan.get_legislator(people_id)
+    if not profile:
+        raise HTTPException(404, f"State legislator not found: {people_id}")
+
+    website = state_sites.derive_website(profile)
+    if not website:
+        return {
+            "promises": None,
+            "source_url": "",
+            "ai_available": bool(config.OPENAI_API_KEY),
+            "scraped": False,
+            "legislator": profile.get("name", ""),
+        }
+
+    votes = await legiscan.get_legislator_votes(people_id)
+    sponsored = profile.get("sponsored_bills") or []
+
+    result = await promises.get_promises(
+        cache_key=f"promises:state:{people_id}",
+        name=profile.get("name", ""),
+        party=profile.get("party", ""),
+        chamber=profile.get("chamber", ""),
+        website=website,
+        votes=votes,
+        sponsored_bills=sponsored,
+    )
+
+    return {
+        "promises": (result or {}).get("promises"),
+        "source_url": (result or {}).get("source_url") or website,
+        "ai_available": bool(config.OPENAI_API_KEY),
+        "scraped": result is not None,
+        "legislator": profile.get("name", ""),
+    }
 
 
 # ============================================================
@@ -391,7 +470,7 @@ async def get_promises(bioguide_id: str):
     votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id"))
 
     result = await promises.get_promises(
-        bioguide_id=bioguide_id,
+        cache_key=f"promises:{bioguide_id}",
         name=leg.get("name", ""),
         party=leg.get("party", ""),
         chamber=leg.get("chamber", ""),
@@ -422,7 +501,7 @@ async def get_stances(bioguide_id: str):
     votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id"))
 
     stances = await stance_analysis.get_stance_analysis(
-        bioguide_id=bioguide_id,
+        cache_key=f"stances:{bioguide_id}",
         name=leg.get("name", ""),
         party=leg.get("party", ""),
         chamber=leg.get("chamber", ""),

@@ -34,7 +34,7 @@ SAMPLE_STANCES = [
 
 
 async def get_stance_analysis(
-    bioguide_id: str,
+    cache_key: str,
     name: str,
     party: str,
     chamber: str,
@@ -44,7 +44,7 @@ async def get_stance_analysis(
     if not OPENAI_API_KEY:
         return None
 
-    cached = ai_cache.get(f"stances:{bioguide_id}")
+    cached = ai_cache.get(cache_key)
     if cached is not None:
         return cached
 
@@ -80,8 +80,8 @@ async def get_stance_analysis(
         stances = parsed if isinstance(parsed, list) else parsed.get("stances") or next(iter(parsed.values()), [])
         if not isinstance(stances, list) or not stances:
             return None
-        ai_cache.set(f"stances:{bioguide_id}", stances)
-        print(f"[stance_analysis] Generated {len(stances)} stances for {bioguide_id}")
+        ai_cache.set(cache_key, stances)
+        print(f"[stance_analysis] Generated {len(stances)} stances for {cache_key}")
         return stances
     except Exception as e:
         print(f"[stance_analysis] Failed ({e})")

@@ -46,6 +46,15 @@ export const api = {
   getStateRep: (peopleId) =>
     apiRequest(`/api/state-reps/${encodeURIComponent(peopleId)}`),
 
+  getStateRepVotes: (peopleId, limit = 20) =>
+    apiRequest(`/api/state-reps/${encodeURIComponent(peopleId)}/votes?limit=${limit}`),
+
+  getStateRepStances: (peopleId) =>
+    apiRequest(`/api/state-reps/${encodeURIComponent(peopleId)}/stances`),
+
+  getStateRepPromises: (peopleId) =>
+    apiRequest(`/api/state-reps/${encodeURIComponent(peopleId)}/promises`, { timeout: 90000 }),
+
   getRepFundingLite: (bioguideId) =>
     apiRequest(`/api/reps/${encodeURIComponent(bioguideId)}/funding-lite`),
 

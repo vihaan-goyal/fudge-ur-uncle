@@ -25,6 +25,10 @@ const SCREENS = {
   SETTINGS: "settings",
   ALERTS: "alerts",
   STATE_REPS: "state_reps",
+  STATE_REP_PROFILE: "state_rep_profile",
+  STATE_REP_VOTING: "state_rep_voting",
+  STATE_REP_STANCES: "state_rep_stances",
+  STATE_REP_PROMISES: "state_rep_promises",
 };
 
 const ISSUES = [
@@ -1640,7 +1644,7 @@ const SettingsScreen = ({ onNav, userState, onSetState }) => {
 // STATE LEGISLATORS (Legiscan)
 // ============================================================
 
-const StateRepsScreen = ({ onNav, userState }) => {
+const StateRepsScreen = ({ onNav, userState, onSelectStateRep }) => {
   const { data, loading, error, offline, reload } = useApi(
     () => api.getStateRepsByState(userState || "CT"),
     [userState],
@@ -1655,7 +1659,11 @@ const StateRepsScreen = ({ onNav, userState }) => {
   const other = reps.filter((r) => r.chamber !== "Senate" && r.chamber !== "House");
 
   const renderCard = (r) => (
-    <div key={r.people_id} style={{ ...s.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+    <div
+      key={r.people_id}
+      style={{ ...s.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8, cursor: "pointer" }}
+      onClick={() => onSelectStateRep?.(r.people_id)}
+    >
       <Avatar name={r.name} size={36} party={r.party} />
       <div style={{ flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1666,6 +1674,9 @@ const StateRepsScreen = ({ onNav, userState }) => {
           {r.chamber || r.role} · {r.district}
         </div>
       </div>
+      <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
+        <Icon type="back" size={14} />
+      </span>
     </div>
   );
 
@@ -1714,6 +1725,377 @@ const StateRepsScreen = ({ onNav, userState }) => {
   );
 };
 
+// ------------------------------------------------------------
+// STATE LEGISLATOR DETAIL — mirrors federal profile flow
+// ------------------------------------------------------------
+
+const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
+  const { data, loading, error, offline, reload } = useApi(
+    () => peopleId ? api.getStateRep(peopleId) : Promise.resolve(null),
+    [peopleId],
+    null
+  );
+
+  useEffect(() => {
+    if (data) onSetStateRepData(data);
+  }, [data, onSetStateRepData]);
+
+  if (!peopleId) {
+    return (
+      <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+        <StatusBar />
+        <div style={{ ...s.body }}>
+          <BackButton onClick={() => onNav(SCREENS.STATE_REPS)} label="State Reps" />
+          <div style={{ ...s.card }}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>
+              Pick a state legislator from the State Reps screen first.
+            </div>
+          </div>
+        </div>
+        <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+        <StatusBar offline={offline} />
+        <div style={{ ...s.body }}>
+          <BackButton onClick={() => onNav(SCREENS.STATE_REPS)} label="State Reps" />
+          <Loading label="Loading legislator..." />
+        </div>
+        <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+        <StatusBar offline={offline} />
+        <div style={{ ...s.body }}>
+          <BackButton onClick={() => onNav(SCREENS.STATE_REPS)} label="State Reps" />
+          <ErrorBanner error={error || "Legislator not found"} onRetry={reload} />
+        </div>
+        <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+      </div>
+    );
+  }
+
+  const sponsoredCount = (data.sponsored_bills || []).length;
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        <BackButton onClick={() => onNav(SCREENS.STATE_REPS)} label="State Reps" />
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+          <Avatar name={data.name} size={56} party={data.party} />
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{data.name}</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+              <PartyBadge party={data.party} />
+              <span style={{ fontSize: 12, color: colors.textMuted }}>
+                {data.chamber || data.role} · {data.district}
+              </span>
+            </div>
+            <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 2 }}>
+              {data.state} State Legislature
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+          <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.accent }}>
+              {sponsoredCount}
+            </div>
+            <div style={{ fontSize: 9, color: colors.textMuted, fontFamily: font }}>SPONSORED BILLS</div>
+          </div>
+          <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.blue }}>
+              {data.chamber || "—"}
+            </div>
+            <div style={{ fontSize: 9, color: colors.textMuted, fontFamily: font }}>CHAMBER</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {[
+            { icon: "vote", label: "Voting Record", sub: "Recent roll-call votes", screen: SCREENS.STATE_REP_VOTING },
+            { icon: "star", label: "Voting Positions", sub: "AI stance analysis", screen: SCREENS.STATE_REP_STANCES },
+            { icon: "megaphone", label: "Stated Promises", sub: "Site-scraped positions vs. votes", screen: SCREENS.STATE_REP_PROMISES },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, marginBottom: 0 }}
+              onClick={() => onNav(item.screen)}
+            >
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: colors.accentDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon type={item.icon} size={16} color={colors.accent} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{item.label}</div>
+                <div style={{ fontSize: 11, color: colors.textMuted }}>{item.sub}</div>
+              </div>
+              <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
+                <Icon type="back" size={14} />
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {sponsoredCount > 0 && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>Recent Sponsored Bills</div>
+            {(data.sponsored_bills || []).slice(0, 5).map((b, i) => (
+              <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${colors.border}` }}>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{b.number}</div>
+                <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>{b.title}</div>
+                {b.status && <span style={s.badge("blue")}>{b.status}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+    </div>
+  );
+};
+
+const StateRepVotingScreen = ({ onNav, peopleId, stateRepData }) => {
+  const name = stateRepData?.name || "State Legislator";
+  const { data, loading, offline } = useApi(
+    () => peopleId ? api.getStateRepVotes(peopleId) : Promise.resolve(null),
+    [peopleId],
+    null
+  );
+
+  const votes = data?.votes || [];
+  const [filter, setFilter] = useState("all");
+  const cats = ["all", ...new Set(votes.map((v) => v.category).filter(Boolean))];
+  const filtered = filter === "all" ? votes : votes.filter((v) => v.category === filter);
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Voting Record</h2>
+        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 12 }}>
+          Recent roll calls on sponsored legislation
+        </div>
+
+        {loading && <Loading label="Pulling roll calls…" />}
+
+        {!loading && cats.length > 1 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {cats.map((c) => (
+              <button key={c} style={s.chip(filter === c)} onClick={() => setFilter(c)}>
+                {c === "all" ? "All" : c}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
+          <div style={{ ...s.card }}>
+            <div style={{ fontSize: 12, color: colors.textMuted, lineHeight: 1.5 }}>
+              No roll-call votes found on this legislator's recent sponsored bills.
+              State-level votes aren't always recorded by Legiscan — this can be normal.
+            </div>
+          </div>
+        )}
+
+        {!loading && filtered.map((v, i) => (
+          <div key={i} style={{ display: "flex", gap: 12, marginBottom: 12, position: "relative", paddingLeft: 16 }}>
+            <div style={{ position: "absolute", left: 0, top: 6, width: 8, height: 8, borderRadius: "50%", background: v.member_vote === "Yea" ? colors.green : colors.red }} />
+            {i < filtered.length - 1 && <div style={{ position: "absolute", left: 3.5, top: 16, width: 1, height: "calc(100% + 4px)", background: colors.border }} />}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={s.badge(v.member_vote === "Yea" ? "green" : "red")}>{(v.member_vote || "?").toUpperCase()}</span>
+                <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>{v.date}</span>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{v.title}</div>
+              {v.category && <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{v.category}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+      <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+    </div>
+  );
+};
+
+const StateRepStancesScreen = ({ onNav, peopleId, stateRepData }) => {
+  const name = stateRepData?.name || "State Legislator";
+  const { data, loading, offline } = useApi(
+    () => peopleId ? api.getStateRepStances(peopleId) : Promise.resolve(null),
+    [peopleId],
+    null
+  );
+
+  const stances = data?.stances || null;
+  const aiAvailable = data?.ai_available ?? true;
+
+  const renderStanceCard = (stance, i) => {
+    const score = stance.score || "PENDING";
+    const st = SCORE_STYLE[score] || SCORE_STYLE.PENDING;
+    return (
+      <div key={i} style={{ ...s.card, marginBottom: 10, borderColor: st.border, background: st.bg }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>{stance.topic}</div>
+          <div style={{
+            fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.8,
+            color: st.color, background: colors.surface,
+            border: `1px solid ${st.border}`, borderRadius: 4, padding: "2px 6px",
+          }}>{score}</div>
+        </div>
+        <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>{stance.stance}</div>
+        {stance.evidence && (
+          <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4, borderTop: `1px solid ${colors.border}`, paddingTop: 6 }}>
+            {stance.evidence}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Voting Positions</h2>
+        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+          AI-analyzed from actual votes and sponsored legislation
+        </div>
+
+        {loading && <Loading label="Analyzing voting record…" />}
+
+        {!loading && !aiAvailable && (
+          <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>OpenAI key not configured</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+              Add <span style={{ fontFamily: font }}>OPENAI_API_KEY</span> to <span style={{ fontFamily: font }}>backend/.env</span> to enable AI stance analysis.
+            </div>
+          </div>
+        )}
+
+        {!loading && aiAvailable && stances && stances.length > 0 && (
+          <>
+            <div style={s.sectionTitle}>Key Positions ({stances.length})</div>
+            {stances.map(renderStanceCard)}
+            <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+              Scores reflect voting record consistency, not campaign promises. Analysis powered by GPT-4o-mini.
+            </div>
+          </>
+        )}
+
+        {!loading && aiAvailable && (!stances || stances.length === 0) && (
+          <div style={{ ...s.card }}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>
+              Not enough voting data to analyze positions yet. State-level vote records are thinner than federal.
+            </div>
+          </div>
+        )}
+      </div>
+      <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+    </div>
+  );
+};
+
+const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
+  const name = stateRepData?.name || "State Legislator";
+  const { data, loading, offline } = useApi(
+    () => peopleId ? api.getStateRepPromises(peopleId) : Promise.resolve(null),
+    [peopleId],
+    null
+  );
+
+  const promises = data?.promises || null;
+  const aiAvailable = data?.ai_available ?? true;
+  const scraped = data?.scraped ?? false;
+  const sourceUrl = data?.source_url || "";
+
+  const renderPromiseCard = (promise, i) => {
+    const status = promise.status || "UNCLEAR";
+    const st = PROMISE_STYLE[status] || PROMISE_STYLE.UNCLEAR;
+    return (
+      <div key={i} style={{ ...s.card, marginBottom: 10, borderColor: st.border, background: st.bg }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>{promise.topic}</div>
+          <div style={{
+            fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.8,
+            color: st.color, background: colors.surface,
+            border: `1px solid ${st.border}`, borderRadius: 4, padding: "2px 6px",
+          }}>{status}</div>
+        </div>
+        <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>{promise.promise}</div>
+        {promise.evidence && (
+          <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4, borderTop: `1px solid ${colors.border}`, paddingTop: 6 }}>
+            {promise.evidence}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Stated Promises</h2>
+        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+          Site-scraped positions scored against voting record
+        </div>
+
+        {loading && <Loading label="Scraping public bio and scoring…" />}
+
+        {!loading && !aiAvailable && (
+          <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>OpenAI key not configured</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+              Add <span style={{ fontFamily: font }}>OPENAI_API_KEY</span> to <span style={{ fontFamily: font }}>backend/.env</span> to enable promise scoring.
+            </div>
+          </div>
+        )}
+
+        {!loading && aiAvailable && !scraped && (
+          <div style={{ ...s.card }}>
+            <div style={{ fontSize: 12, color: colors.textMuted, lineHeight: 1.5 }}>
+              No public bio page with enough policy text was found for this legislator.
+              State legislators often don't publish stated positions online.
+            </div>
+          </div>
+        )}
+
+        {!loading && aiAvailable && scraped && promises && promises.length > 0 && (
+          <>
+            {promises.map(renderPromiseCard)}
+            {sourceUrl && (
+              <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+                Promises extracted from <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{sourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.
+              </div>
+            )}
+          </>
+        )}
+
+        {!loading && aiAvailable && scraped && (!promises || promises.length === 0) && (
+          <div style={{ ...s.card }}>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>
+              Bio page was readable but no clear stated positions were extracted.
+            </div>
+          </div>
+        )}
+      </div>
+      <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+    </div>
+  );
+};
+
 // ============================================================
 // MAIN APP
 // ============================================================
@@ -1724,6 +2106,8 @@ export default function App() {
   const [userState, setUserState] = useState("CT");
   const [profileData, setProfileData] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedStatePeopleId, setSelectedStatePeopleId] = useState(null);
+  const [stateRepData, setStateRepData] = useState(null);
   const [globalOffline, setGlobalOffline] = useState(false);
 
   // Check backend health on load
@@ -1737,6 +2121,12 @@ export default function App() {
     setSelectedBioguideId(bioguideId);
     setProfileData(null); // clear old data so it refetches
     setCurrentScreen(SCREENS.POLITICIAN_PROFILE);
+  };
+
+  const selectStateRep = (peopleId) => {
+    setSelectedStatePeopleId(peopleId);
+    setStateRepData(null);
+    setCurrentScreen(SCREENS.STATE_REP_PROFILE);
   };
 
   const selectEvent = (ev) => {
@@ -1764,7 +2154,11 @@ export default function App() {
       case SCREENS.EVENT_DETAIL: return <EventDetailScreen {...common} event={selectedEvent} />;
       case SCREENS.LEARN_TO_VOTE: return <LearnToVoteScreen {...common} userState={userState} />;
       case SCREENS.ALERTS: return <AlertsScreen {...common} />;
-      case SCREENS.STATE_REPS: return <StateRepsScreen {...common} userState={userState} />;
+      case SCREENS.STATE_REPS: return <StateRepsScreen {...common} userState={userState} onSelectStateRep={selectStateRep} />;
+      case SCREENS.STATE_REP_PROFILE: return <StateRepProfileScreen {...common} peopleId={selectedStatePeopleId} onSetStateRepData={setStateRepData} />;
+      case SCREENS.STATE_REP_VOTING: return <StateRepVotingScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
+      case SCREENS.STATE_REP_STANCES: return <StateRepStancesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
+      case SCREENS.STATE_REP_PROMISES: return <StateRepPromisesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSetState={setUserState} />;
       default: return <SplashScreen {...common} />;
     }
@@ -1790,6 +2184,10 @@ export default function App() {
     [SCREENS.LEARN_TO_VOTE, "Learn to Vote"],
     [SCREENS.ALERTS, "Alerts"],
     [SCREENS.STATE_REPS, "State Reps"],
+    [SCREENS.STATE_REP_PROFILE, "State Profile"],
+    [SCREENS.STATE_REP_VOTING, "State Voting"],
+    [SCREENS.STATE_REP_STANCES, "State Stances"],
+    [SCREENS.STATE_REP_PROMISES, "State Promises"],
     [SCREENS.SETTINGS, "Settings"],
   ];
 
