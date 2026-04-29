@@ -123,6 +123,32 @@ async def search_reps(q: str = Query(..., min_length=2)):
     return {"query": q, "count": len(results), "results": results}
 
 
+@app.get("/api/search/unified", tags=["search"])
+async def search_unified(q: str = Query(..., min_length=2), state: Optional[str] = None):
+    """
+    Combined federal + state legislator name search. Federal results come from
+    the congress-legislators GitHub data; state results require a `state` param
+    (e.g. CT) and come from the cached Legiscan roster. Each result is tagged
+    with `level: "federal" | "state"` so the frontend can route clicks.
+    """
+    federal_task = legislators.search_by_name(q)
+    state_task = (
+        legiscan.search_state_legislators(state, q)
+        if state else asyncio.sleep(0, result=[])
+    )
+    federal, state_hits = await asyncio.gather(federal_task, state_task)
+
+    results = [{**r, "level": "federal"} for r in federal] + \
+              [{**r, "level": "state"} for r in state_hits]
+
+    return {
+        "query": q,
+        "state": (state or "").upper() or None,
+        "count": len(results),
+        "results": results,
+    }
+
+
 @app.get("/api/reps/{bioguide_id}", tags=["representatives"])
 async def get_rep_detail(bioguide_id: str):
     """Get full profile for a representative."""
@@ -211,7 +237,7 @@ async def get_state_rep_stances(people_id: int):
 
     return {
         "stances": stances,
-        "ai_available": stances is not None,
+        "ai_available": bool(config.OPENAI_API_KEY),
         "legislator": profile.get("name", ""),
     }
 
@@ -511,7 +537,7 @@ async def get_stances(bioguide_id: str):
 
     return {
         "stances": stances,
-        "ai_available": stances is not None,
+        "ai_available": bool(config.OPENAI_API_KEY),
         "legislator": leg.get("name", ""),
     }
 

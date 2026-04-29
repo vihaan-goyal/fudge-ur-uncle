@@ -619,7 +619,7 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
 };
 
 // 6. SEARCH - WIRED TO BACKEND
-const SearchScreen = ({ onNav, onSelectPolitician }) => {
+const SearchScreen = ({ onNav, onSelectPolitician, onSelectStateRep, userState }) => {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
 
@@ -631,13 +631,41 @@ const SearchScreen = ({ onNav, onSelectPolitician }) => {
   const { data, loading, offline } = useApi(
     async () => {
       if (!debounced || debounced.length < 2) return { results: [] };
-      return await api.searchReps(debounced);
+      return await api.searchUnified(debounced, userState);
     },
-    [debounced],
-    { results: query.length >= 2 ? SAMPLE.reps.filter((r) => r.name.toLowerCase().includes(query.toLowerCase())) : [] }
+    [debounced, userState],
+    {
+      results: query.length >= 2
+        ? [
+            ...SAMPLE.reps
+              .filter((r) => r.name.toLowerCase().includes(query.toLowerCase()))
+              .map((r) => ({ ...r, level: "federal" })),
+            ...SAMPLE.stateReps
+              .filter((r) => (!userState || r.state === userState)
+                && r.name.toLowerCase().includes(query.toLowerCase()))
+              .map((r) => ({ ...r, level: "state" })),
+          ]
+        : [],
+    }
   );
 
   const results = data?.results || [];
+
+  const handleClick = (p) => {
+    if (p.level === "state") onSelectStateRep?.(p.people_id);
+    else onSelectPolitician?.(p.bioguide_id);
+  };
+
+  const levelBadge = (level) => (
+    <span style={{
+      fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, marginLeft: 6,
+      background: level === "state" ? "rgba(110, 168, 254, 0.15)" : "rgba(255, 200, 87, 0.15)",
+      color: level === "state" ? "#6ea8fe" : colors.yellow,
+      letterSpacing: 0.5,
+    }}>
+      {level === "state" ? "STATE" : "FEDERAL"}
+    </span>
+  );
 
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
@@ -646,9 +674,12 @@ const SearchScreen = ({ onNav, onSelectPolitician }) => {
         <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Search</h1>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
-        <input style={{ ...s.input, marginBottom: 14 }} placeholder="Search by name..." value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input style={{ ...s.input, marginBottom: 14 }} placeholder="Search federal + state by name..." value={query} onChange={(e) => setQuery(e.target.value)} />
         {query.length < 2 && (
-          <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>Type at least 2 characters to search.</p>
+          <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>
+            Type at least 2 characters to search.
+            {userState && <> State results limited to {userState}.</>}
+          </p>
         )}
         {query.length >= 2 && loading && <Loading label="Searching..." />}
         {query.length >= 2 && !loading && results.length === 0 && (
@@ -657,16 +688,21 @@ const SearchScreen = ({ onNav, onSelectPolitician }) => {
         {results.length > 0 && (
           <>
             <div style={s.sectionTitle}>Results ({results.length})</div>
-            {results.map((p) => (
-              <div key={p.bioguide_id} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }} onClick={() => onSelectPolitician(p.bioguide_id)}>
-                <Avatar name={p.name} size={36} party={p.party} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name} <PartyBadge party={p.party} /></div>
-                  <div style={{ fontSize: 11, color: colors.textMuted }}>{p.chamber} · {p.district}</div>
+            {results.map((p) => {
+              const id = p.level === "state" ? `s-${p.people_id}` : `f-${p.bioguide_id}`;
+              return (
+                <div key={id} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }} onClick={() => handleClick(p)}>
+                  <Avatar name={p.name} size={36} party={p.party} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {p.name} <PartyBadge party={p.party} />{levelBadge(p.level)}
+                    </div>
+                    <div style={{ fontSize: 11, color: colors.textMuted }}>{p.chamber} · {p.district}</div>
+                  </div>
+                  <Icon type="back" size={14} color={colors.textMuted} />
                 </div>
-                <Icon type="back" size={14} color={colors.textMuted} />
-              </div>
-            ))}
+              );
+            })}
           </>
         )}
       </div>
@@ -2142,7 +2178,7 @@ export default function App() {
       case SCREENS.LOGIN: return <LoginScreen {...common} />;
       case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} />;
       case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} />;
-      case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} />;
+      case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} onSelectStateRep={selectStateRep} userState={userState} />;
       case SCREENS.POLITICIAN_PROFILE: return <PoliticianProfileScreen {...common} bioguideId={selectedBioguideId} onSetProfileData={setProfileData} />;
       case SCREENS.FUNDING: return <FundingScreen {...common} profileData={profileData} />;
       case SCREENS.VOTING_HISTORY: return <VotingHistoryScreen {...common} profileData={profileData} />;

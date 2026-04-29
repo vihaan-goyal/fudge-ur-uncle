@@ -61,6 +61,12 @@ export const api = {
   searchReps: (query) =>
     apiRequest(`/api/reps/search?q=${encodeURIComponent(query)}`),
 
+  searchUnified: (query, state) => {
+    const params = new URLSearchParams({ q: query });
+    if (state) params.set("state", state);
+    return apiRequest(`/api/search/unified?${params}`);
+  },
+
   getProfile: (bioguideId) =>
     apiRequest(`/api/profile/${encodeURIComponent(bioguideId)}`),
 

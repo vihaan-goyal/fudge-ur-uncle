@@ -23,7 +23,8 @@ fudge-ur-uncle-full/
 │   │   ├── stance_analysis.py    # OpenAI GPT-4o-mini - per-legislator policy stance analysis
 │   │   ├── promises.py           # scrapes rep's .gov site, GPT scores stated promises vs votes
 │   │   ├── ai_cache.py           # persistent SQLite cache for promises + stances + Legiscan (TTL 7d)
-│   │   ├── legiscan.py           # Legiscan API wrapper - state legislators + sponsored bills
+│   │   ├── legiscan.py           # Legiscan API wrapper - state legislators, sponsored bills, roll calls
+│   │   ├── state_sites.py        # derives a Ballotpedia URL for state legislators (for promise scraping)
 │   │   └── alerts_router.py      # /api/alerts/* endpoints
 │   └── alerts/        # alert generation pipeline
 │       ├── config.py             # alert pipeline tuning (thresholds, lookback windows)
@@ -42,7 +43,7 @@ fudge-ur-uncle-full/
     └── src/
         ├── main.jsx              # entry
         ├── api.js                # fetch wrapper + endpoint methods
-        └── App.jsx               # all 18 screens + routing (single file)
+        └── App.jsx               # all 23 screens + routing (single file)
 ```
 
 ## Run Commands
@@ -106,9 +107,13 @@ The health endpoint `GET /` reports which keys are configured.
 
 **Promise scoring scrapes the rep's official site, then grades vs. votes.** `GET /api/profile/{bioguide_id}/promises` runs a two-phase pipeline in `backend/api/promises.py`: (1) fetch the homepage and common issue paths (`/issues`, `/priorities`, `/about`, etc.) in parallel with `asyncio.gather`, regex-strip HTML to plain text, cap at 14k chars; (2) send that text plus the legislator's substantive votes and sponsored bills to GPT-4o-mini, which extracts 4–6 stated positions and labels each KEPT / BROKEN / PARTIAL / UNCLEAR with strict evidence rules (direct subject match only, no hedge words). Requires `OPENAI_API_KEY`; returns `{"promises": null, "scraped": false}` if the key is missing or scraping yielded <400 chars (common when sites are JS-rendered). Cached in-process per bioguide_id. Substantive-vote filtering is shared with stance_analysis via `is_substantive_vote()` / `format_vote_lines()` / `format_bill_lines()` in `backend/api/congress_gov.py`.
 
-**State legislators come from Legiscan.** `GET /api/state-reps/by-state/{state}` returns the current-session roster for a state (chamber, district, party, `people_id`). `GET /api/state-reps/{people_id}` returns the profile plus recent sponsored bills. `backend/api/legiscan.py` does a two-step fetch (`getSessionList` → newest session → `getSessionPeople`) for rosters, and `getPerson` + `getSponsoredList` for profiles. All results go through `ai_cache` (7d for rosters, 24h for profiles) because the free tier caps at 30k req/month. Falls back to `SAMPLE_STATE_LEGISLATORS` (CT only) if the key is missing or the upstream fails, matching the rest of `backend/api/*`.
+**State legislators come from Legiscan.** `GET /api/state-reps/by-state/{state}` returns the current-session roster (chamber, district, party, `people_id`). `GET /api/state-reps/{people_id}` returns the profile plus up to 15 most recent sponsored bills. `backend/api/legiscan.py` does a two-step fetch (`getSessionList` → newest session → `getSessionPeople`) for rosters, and `getPerson` + `getSponsoredList` for profiles. All results go through `ai_cache` (7d for rosters, 24h for profiles, 24h for votes) because the free tier caps at 30k req/month. Falls back to `SAMPLE_STATE_LEGISLATORS` (CT only) if the key is missing or the upstream fails. **Legiscan gotcha:** `getSponsoredList` returns `bills` as a flat list at `sponsoredbills.bills` with a `session_id` on each item; `sponsoredbills.sessions` is just session metadata, *not* nested bills. Sort by `session_id` desc to get newest-first.
 
-**AI results are cached in SQLite, not just in-process.** Promise scoring and stance analysis both go through `backend/api/ai_cache.py`, which stores results in an `ai_cache` table (`cache_key`, `value_json`, `expires_at`) with a default 7-day TTL. Keys are namespaced: `promises:{bioguide_id}`, `stances:{bioguide_id}`. The table is created lazily on first access, so the cache works even if `python -m backend.db` hasn't been run. A server restart no longer discards results, and repeat visits don't re-hit OpenAI. Rationale: each call is 30-90s and costs money.
+**State-rep deep-dive endpoints mirror the federal flow.** `GET /api/state-reps/{people_id}/votes` returns recent roll-call votes by fetching bill detail for the rep's most recent sponsored bills (capped at 8) and pulling the latest roll call from each (`getBill` → `getRollCall`). `GET /api/state-reps/{people_id}/stances` reuses `stance_analysis.py` with a `stances:state:{people_id}` cache key. `GET /api/state-reps/{people_id}/promises` reuses `promises.py` with a `promises:state:{people_id}` cache key, where the website URL is derived by `state_sites.derive_website()` (defaults to Ballotpedia URL pattern, with per-state overrides possible). Note: the votes endpoint only finds rolls on bills the rep *sponsored*; backbench reps with sparse sponsorship will see thin results.
+
+**Search is unified across federal + state.** `GET /api/search/unified?q=...&state=CT` fans out to `legislators.search_by_name` (federal, GitHub data) and `legiscan.search_state_legislators` (state, filtered against the cached roster) in parallel via `asyncio.gather`. Each result is tagged with `level: "federal" | "state"` so the frontend `SearchScreen` can route clicks to the correct profile screen (federal → `bioguide_id`, state → `people_id`). `state` param is optional; when omitted only federal results are returned.
+
+**AI results are cached in SQLite, not just in-process.** Promise scoring and stance analysis both go through `backend/api/ai_cache.py`, which stores results in an `ai_cache` table (`cache_key`, `value_json`, `expires_at`) with a default 7-day TTL. Keys are namespaced: `promises:{bioguide_id}`, `stances:{bioguide_id}`, `promises:state:{people_id}`, `stances:state:{people_id}`, `legiscan:people:{state}`, `legiscan:profile:{people_id}`, `legiscan:votes:{people_id}`. The table is created lazily on first access, so the cache works even if `python -m backend.db` hasn't been run. A server restart no longer discards results, and repeat visits don't re-hit OpenAI. Rationale: each call is 30-90s and costs money. **Cache-bust gotcha:** if a parser bug poisons cached entries with empty data, the bad results stick for the TTL — wipe the relevant rows from `ai_cache` directly when fixing parsers.
 
 **Alert scoring is a documented formula, not a heuristic.** `backend/alerts/scoring.py` computes `S = (T*V) * (alpha*D + beta*R + gamma*A) * (1 + delta*N)` where T=topic match, V=vote proximity, D=donation magnitude, R=recency, A=anomaly z-score, N=news salience. Topic match uses the table in `industry_map.py`. Thresholds: S>0.3 → alert, S>0.6 → urgent. All intermediate signals are stored on the alert for explainability.
 
@@ -117,7 +122,7 @@ The health endpoint `GET /` reports which keys are configured.
 - Backend: `async`/`await` everywhere, `httpx.AsyncClient` for outbound calls, retry with exponential backoff on 429s.
 - All endpoints return JSON with consistent shapes. Add new ones to `server.py` next to similar existing endpoints.
 - New external APIs go in `backend/api/` as their own module, then composed in `server.py`.
-- Frontend is intentionally a single `App.jsx` file - all 19 screens, styles via inline `style={s.foo}` objects against a shared `s` style map. Don't split this up casually; the single-file structure was a deliberate choice.
+- Frontend is intentionally a single `App.jsx` file - all 23 screens, styles via inline `style={s.foo}` objects against a shared `s` style map. Don't split this up casually; the single-file structure was a deliberate choice.
 - Frontend screens are switched via a `currentScreen` state + `SCREENS` enum, not React Router.
 
 ## Gotchas
@@ -130,6 +135,6 @@ The health endpoint `GET /` reports which keys are configured.
 
 ## Status (April 2026)
 
-Wired and live: dashboard, search, profile, funding, voting history, timeline, take-action, contact reps, settings, alerts (when pipeline has run), events + event detail (real Congress.gov committee meetings, NewsAPI news articles, OpenAI plain-English summaries), AI stance analysis on profile screen, AI promise scoring on profile screen (scrapes rep's .gov site, scores stated promises vs votes — both AI features require `OPENAI_API_KEY`), state legislators screen (Legiscan roster for the user's state, with sample-data fallback when `LEGISCAN_API_KEY` is missing).
+Wired and live: dashboard, unified federal+state search, profile, funding, voting history, timeline, take-action, contact reps, settings, alerts (when pipeline has run), events + event detail (real Congress.gov committee meetings, NewsAPI news articles, OpenAI plain-English summaries), AI stance analysis on profile screen, AI promise scoring on profile screen (scrapes rep's .gov site, scores stated promises vs votes — both AI features require `OPENAI_API_KEY`), state legislators screen (Legiscan roster, sample-data fallback when `LEGISCAN_API_KEY` is missing), state-legislator profile deep-dive (votes, stances, promises — same AI pipeline as federal, with Ballotpedia as the scrape target).
 
-Deferred / not yet implemented: state-legislator profile deep-dive (votes, stances, promises), state-level alerts pipeline, unified federal+state search.
+Deferred / not yet implemented: state-level alerts pipeline (needs a state donations data source — Legiscan doesn't carry money data; candidates are OpenSecrets, FollowTheMoney, or per-state filings).

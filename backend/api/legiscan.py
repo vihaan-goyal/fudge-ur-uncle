@@ -5,9 +5,10 @@ Free tier is 30k requests/month + 1 req/sec, so we lean on ai_cache heavily.
 All Legiscan ops are GETs against https://api.legiscan.com/?key=KEY&op=NAME.
 
 Public functions:
-  - get_state_legislators(state)     -> list[dict]   (normalized)
-  - get_legislator(people_id)        -> dict | None  (profile + sponsored bills)
-  - get_legislator_votes(people_id)  -> list[dict]   (recent roll calls)
+  - get_state_legislators(state)        -> list[dict]   (normalized)
+  - search_state_legislators(state, q)  -> list[dict]   (filters cached roster)
+  - get_legislator(people_id)           -> dict | None  (profile + sponsored bills)
+  - get_legislator_votes(people_id)     -> list[dict]   (recent roll calls)
 
 Falls back to SAMPLE_STATE_LEGISLATORS when no API key is set or the
 upstream request fails, matching the rest of backend/api/*.
@@ -181,6 +182,23 @@ async def get_state_legislators(state: str) -> list[dict]:
         return list(SAMPLE_STATE_LEGISLATORS.get(state, []))
 
 
+async def search_state_legislators(state: str, query: str) -> list[dict]:
+    """
+    Filter the cached roster for `state` by name substring. Reuses
+    get_state_legislators(), so no extra Legiscan calls when the roster
+    is already cached.
+    """
+    if not state or not query or len(query) < 2:
+        return []
+    roster = await get_state_legislators(state)
+    q = query.lower()
+    return [
+        r for r in roster
+        if q in (r.get("name") or "").lower()
+        or q in (r.get("last_name") or "").lower()
+    ]
+
+
 async def get_legislator(people_id: int) -> dict | None:
     """
     Return profile + recent sponsored bills for a state legislator.
@@ -211,22 +229,26 @@ async def get_legislator(people_id: int) -> dict | None:
         sponsored: list[dict] = []
         try:
             sponsored_data = await _call("getSponsoredList", id=people_id)
-            sessions = (sponsored_data.get("sponsoredbills") or {}).get("sessions") or []
-            # Flatten bills across sessions, newest first (last session in list).
-            for sess in reversed(sessions):
-                for b in sess.get("bills") or []:
-                    sponsored.append({
-                        "bill_id": b.get("bill_id"),
-                        "number": b.get("number") or b.get("bill_number", ""),
-                        "title": b.get("title", ""),
-                        "status": b.get("status_desc") or b.get("status", ""),
-                    })
-                if len(sponsored) >= 15:
-                    break
+            sb = sponsored_data.get("sponsoredbills") or {}
+            # Legiscan returns `bills` as a flat list with session_id on each
+            # entry, alongside a sibling `sessions` list of session metadata.
+            # Newest-first by session_id, with bill_id as tiebreaker.
+            raw_bills = sorted(
+                sb.get("bills") or [],
+                key=lambda b: (b.get("session_id", 0), b.get("bill_id", 0)),
+                reverse=True,
+            )
+            for b in raw_bills[:15]:
+                sponsored.append({
+                    "bill_id": b.get("bill_id"),
+                    "number": b.get("number") or b.get("bill_number", ""),
+                    "title": b.get("title", ""),
+                    "status": b.get("status_desc") or b.get("status", ""),
+                })
         except Exception as e:
             print(f"[legiscan] sponsored lookup for {people_id} failed ({e})")
 
-        profile["sponsored_bills"] = sponsored[:15]
+        profile["sponsored_bills"] = sponsored
         ai_cache.set(cache_key, profile, ttl_hours=_PROFILE_TTL_HOURS)
         return profile
     except Exception as e:
