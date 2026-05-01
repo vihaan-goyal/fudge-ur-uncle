@@ -212,7 +212,7 @@ def _existing_fec_ids(conn, bioguide_id: str) -> set[str]:
     """Return the set of fec_filing_ids already stored for a legislator (for dedup)."""
     rows = conn.execute(
         """SELECT fec_filing_id FROM donations
-           WHERE bioguide_id = ? AND fec_filing_id IS NOT NULL""",
+           WHERE actor_type = 'federal' AND actor_id = ? AND fec_filing_id IS NOT NULL""",
         (bioguide_id,),
     ).fetchall()
     return {r["fec_filing_id"] for r in rows}
@@ -234,8 +234,8 @@ def _insert_donation(conn, bioguide_id: str, record: dict, industry: str) -> boo
     try:
         conn.execute(
             """INSERT INTO donations
-               (bioguide_id, pac_name, industry, amount, donation_date, fec_filing_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (actor_type, actor_id, pac_name, industry, amount, donation_date, fec_filing_id)
+               VALUES ('federal', ?, ?, ?, ?, ?, ?)""",
             (bioguide_id, pac_name, industry, amount, donation_date, sub_id),
         )
         return True

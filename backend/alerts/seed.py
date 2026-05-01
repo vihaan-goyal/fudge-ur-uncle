@@ -44,7 +44,7 @@ def _seed_donations(conn) -> int:
         try:
             conn.execute(
                 """INSERT INTO donations
-                   (bioguide_id, pac_name, industry, amount, donation_date, fec_filing_id)
+                   (actor_id, pac_name, industry, amount, donation_date, fec_filing_id)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 row,
             )

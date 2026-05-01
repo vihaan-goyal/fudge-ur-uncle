@@ -28,15 +28,17 @@ from .scoring import (
 
 # ---------- DB read helpers ----------
 
-def _fetch_recent_donations(conn, lookback_days: int) -> list[tuple[int, Donation, str]]:
-    """Return (donation_id, Donation, bioguide_id) for donations in the lookback window."""
+def _fetch_recent_donations(
+    conn, lookback_days: int, actor_type: str = "federal"
+) -> list[tuple[int, Donation, str, str]]:
+    """Return (donation_id, Donation, actor_type, actor_id) for donations in the window."""
     cutoff = date.today() - timedelta(days=lookback_days)
     cursor = conn.execute(
-        """SELECT id, bioguide_id, pac_name, industry, amount, donation_date
+        """SELECT id, actor_type, actor_id, pac_name, industry, amount, donation_date
            FROM donations
-           WHERE donation_date >= ?
+           WHERE actor_type = ? AND donation_date >= ?
            ORDER BY donation_date DESC""",
-        (cutoff,),
+        (actor_type, cutoff),
     )
     out = []
     for row in cursor:
@@ -46,21 +48,32 @@ def _fetch_recent_donations(conn, lookback_days: int) -> list[tuple[int, Donatio
             industry=row["industry"],
             pac_name=row["pac_name"],
         )
-        out.append((row["id"], d, row["bioguide_id"]))
+        out.append((row["id"], d, row["actor_type"], row["actor_id"]))
     return out
 
 
-def _fetch_upcoming_votes(conn, lookahead_days: int) -> list[tuple[int, ScheduledVote]]:
+def _fetch_upcoming_votes(
+    conn, lookahead_days: int, jurisdiction: str = "federal", state_code: Optional[str] = None
+) -> list[tuple[int, ScheduledVote]]:
     """Return (vote_id, ScheduledVote) for votes in the lookahead window."""
     today = date.today()
     cutoff = today + timedelta(days=lookahead_days)
-    cursor = conn.execute(
-        """SELECT id, bill_number, title, category, scheduled_date
-           FROM scheduled_votes
-           WHERE scheduled_date >= ? AND scheduled_date <= ?
-           ORDER BY scheduled_date ASC""",
-        (today, cutoff),
-    )
+    if state_code is None:
+        cursor = conn.execute(
+            """SELECT id, bill_number, title, category, scheduled_date
+               FROM scheduled_votes
+               WHERE jurisdiction = ? AND scheduled_date >= ? AND scheduled_date <= ?
+               ORDER BY scheduled_date ASC""",
+            (jurisdiction, today, cutoff),
+        )
+    else:
+        cursor = conn.execute(
+            """SELECT id, bill_number, title, category, scheduled_date
+               FROM scheduled_votes
+               WHERE jurisdiction = ? AND state_code = ? AND scheduled_date >= ? AND scheduled_date <= ?
+               ORDER BY scheduled_date ASC""",
+            (jurisdiction, state_code, today, cutoff),
+        )
     out = []
     for row in cursor:
         v = ScheduledVote(
@@ -73,13 +86,13 @@ def _fetch_upcoming_votes(conn, lookahead_days: int) -> list[tuple[int, Schedule
     return out
 
 
-def _fetch_baseline(conn, bioguide_id: str, industry: str) -> Optional[Baseline]:
-    """Look up the precomputed baseline for (rep, industry); None if missing."""
+def _fetch_baseline(conn, actor_type: str, actor_id: str, industry: str) -> Optional[Baseline]:
+    """Look up the precomputed baseline for (actor, industry); None if missing."""
     row = conn.execute(
         """SELECT mean_amount, stddev_amount, n_samples
            FROM industry_baselines
-           WHERE bioguide_id = ? AND industry = ?""",
-        (bioguide_id, industry),
+           WHERE actor_type = ? AND actor_id = ? AND industry = ?""",
+        (actor_type, actor_id, industry),
     ).fetchone()
     if not row or row["n_samples"] < config.BASELINE_MIN_SAMPLES:
         return None
@@ -106,19 +119,19 @@ def _count_news_mentions(conn, bill_number: str, category: str) -> int:
 
 def recompute_baselines(conn) -> int:
     """
-    Recompute (mean, stddev, n) for every (rep, industry) pair from history.
+    Recompute (mean, stddev, n) for every (actor, industry) pair from history.
 
     Excludes the most recent 60 days so a recent suspicious donation
     doesn't pollute its own baseline. Returns the number of baselines written.
     """
     cutoff = date.today() - timedelta(days=60)
     cursor = conn.execute(
-        """SELECT bioguide_id, industry,
+        """SELECT actor_type, actor_id, industry,
                   AVG(amount) AS mean_amount,
                   COUNT(*)    AS n_samples
            FROM donations
            WHERE donation_date < ?
-           GROUP BY bioguide_id, industry""",
+           GROUP BY actor_type, actor_id, industry""",
         (cutoff,),
     )
 
@@ -128,8 +141,8 @@ def recompute_baselines(conn) -> int:
         amounts = [
             r["amount"] for r in conn.execute(
                 """SELECT amount FROM donations
-                   WHERE bioguide_id = ? AND industry = ? AND donation_date < ?""",
-                (row["bioguide_id"], row["industry"], cutoff),
+                   WHERE actor_type = ? AND actor_id = ? AND industry = ? AND donation_date < ?""",
+                (row["actor_type"], row["actor_id"], row["industry"], cutoff),
             )
         ]
         n = len(amounts)
@@ -142,14 +155,14 @@ def recompute_baselines(conn) -> int:
 
         conn.execute(
             """INSERT INTO industry_baselines
-               (bioguide_id, industry, mean_amount, stddev_amount, n_samples, updated_at)
-               VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-               ON CONFLICT(bioguide_id, industry) DO UPDATE SET
+               (actor_type, actor_id, industry, mean_amount, stddev_amount, n_samples, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(actor_type, actor_id, industry) DO UPDATE SET
                  mean_amount = excluded.mean_amount,
                  stddev_amount = excluded.stddev_amount,
                  n_samples = excluded.n_samples,
                  updated_at = CURRENT_TIMESTAMP""",
-            (row["bioguide_id"], row["industry"], row["mean_amount"], stddev, n),
+            (row["actor_type"], row["actor_id"], row["industry"], row["mean_amount"], stddev, n),
         )
         written += 1
     return written
@@ -158,14 +171,14 @@ def recompute_baselines(conn) -> int:
 # ---------- Alert write ----------
 
 def _upsert_alert(
-    conn, bioguide_id: str, donation_id: int, vote_id: int,
+    conn, actor_type: str, actor_id: str, donation_id: int, vote_id: int,
     score: float, urgent: bool, headline: str, body: str, signals_json: str,
 ) -> bool:
     """Insert or update an alert. Returns True if newly inserted."""
     existing = conn.execute(
         """SELECT id FROM alerts
-           WHERE bioguide_id = ? AND donation_id = ? AND vote_id = ?""",
-        (bioguide_id, donation_id, vote_id),
+           WHERE actor_type = ? AND actor_id = ? AND donation_id = ? AND vote_id = ?""",
+        (actor_type, actor_id, donation_id, vote_id),
     ).fetchone()
 
     if existing:
@@ -179,10 +192,10 @@ def _upsert_alert(
 
     conn.execute(
         """INSERT INTO alerts
-           (bioguide_id, donation_id, vote_id, score, urgent,
+           (actor_type, actor_id, donation_id, vote_id, score, urgent,
             headline, body, signals_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (bioguide_id, donation_id, vote_id, score, urgent,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (actor_type, actor_id, donation_id, vote_id, score, urgent,
          headline, body, signals_json),
     )
     return True
@@ -190,9 +203,62 @@ def _upsert_alert(
 
 # ---------- Main pipeline ----------
 
+def _run_for_jurisdiction(
+    conn, actor_type: str, jurisdiction: str, stats: dict
+) -> None:
+    """Score (donation x vote) pairs for one side of the world (federal or state).
+
+    Federal donations are paired only with federal votes; state with state.
+    The signal-scoring formula itself is identity-agnostic, but we don't
+    want a federal rep's donations matched against a state bill or vice versa.
+    """
+    donations = _fetch_recent_donations(conn, config.DONATION_LOOKBACK_DAYS, actor_type=actor_type)
+    votes = _fetch_upcoming_votes(conn, config.VOTE_LOOKAHEAD_DAYS, jurisdiction=jurisdiction)
+    stats["donations_considered"] += len(donations)
+    stats["votes_considered"] += len(votes)
+    print(f"[pipeline] {actor_type}: {len(donations)} donations x {len(votes)} votes")
+
+    if not donations or not votes:
+        return
+
+    news_cache = {
+        (v.bill_number, v.category): _count_news_mentions(conn, v.bill_number, v.category)
+        for _, v in votes
+    }
+
+    for donation_id, donation, a_type, a_id in donations:
+        baseline = _fetch_baseline(conn, a_type, a_id, donation.industry)
+        for vote_id, vote in votes:
+            stats["pairs_scored"] += 1
+            news_count = news_cache[(vote.bill_number, vote.category)]
+
+            signals = score_alert(
+                donation=donation, vote=vote, baseline=baseline,
+                news_article_count=news_count,
+            )
+            if not should_alert(signals):
+                continue
+
+            headline, body = format_alert_text(donation, vote, signals)
+            signals_json = json.dumps(asdict(signals))
+            was_new = _upsert_alert(
+                conn, a_type, a_id, donation_id, vote_id,
+                signals.score, signals.urgent, headline, body, signals_json,
+            )
+            if was_new:
+                stats["alerts_written_new"] += 1
+            else:
+                stats["alerts_updated"] += 1
+            if signals.urgent:
+                stats["alerts_urgent"] += 1
+
+
 def run_pipeline() -> dict:
     """
     Score every (recent donation, upcoming vote) pair and write alerts.
+
+    Runs federal and state independently so cross-jurisdiction pairs (e.g. a
+    federal rep's donation against a state bill) don't get scored.
 
     Returns a stats dict for logging.
     """
@@ -209,58 +275,13 @@ def run_pipeline() -> dict:
     }
 
     with connect() as conn:
-        # 1. Refresh baselines from history
+        # Baselines are computed across both jurisdictions in one pass —
+        # the GROUP BY already includes actor_type so federal/state stay separate.
         stats["baselines_computed"] = recompute_baselines(conn)
         print(f"[pipeline] Recomputed {stats['baselines_computed']} baselines")
 
-        # 2. Pull candidates
-        donations = _fetch_recent_donations(conn, config.DONATION_LOOKBACK_DAYS)
-        votes = _fetch_upcoming_votes(conn, config.VOTE_LOOKAHEAD_DAYS)
-        stats["donations_considered"] = len(donations)
-        stats["votes_considered"] = len(votes)
-        print(f"[pipeline] Considering {len(donations)} donations x {len(votes)} votes")
-
-        if not donations or not votes:
-            print("[pipeline] Nothing to score.")
-            return stats
-
-        # 3. Cache news counts per (bill, category) - avoid repeat queries
-        news_cache = {
-            (v.bill_number, v.category): _count_news_mentions(conn, v.bill_number, v.category)
-            for _, v in votes
-        }
-
-        # 4. Score every pair
-        for donation_id, donation, bioguide_id in donations:
-            baseline = _fetch_baseline(conn, bioguide_id, donation.industry)
-
-            for vote_id, vote in votes:
-                stats["pairs_scored"] += 1
-                news_count = news_cache[(vote.bill_number, vote.category)]
-
-                signals = score_alert(
-                    donation=donation,
-                    vote=vote,
-                    baseline=baseline,
-                    news_article_count=news_count,
-                )
-
-                if not should_alert(signals):
-                    continue
-
-                headline, body = format_alert_text(donation, vote, signals)
-                signals_json = json.dumps(asdict(signals))
-                was_new = _upsert_alert(
-                    conn, bioguide_id, donation_id, vote_id,
-                    signals.score, signals.urgent,
-                    headline, body, signals_json,
-                )
-                if was_new:
-                    stats["alerts_written_new"] += 1
-                else:
-                    stats["alerts_updated"] += 1
-                if signals.urgent:
-                    stats["alerts_urgent"] += 1
+        _run_for_jurisdiction(conn, actor_type="federal", jurisdiction="federal", stats=stats)
+        _run_for_jurisdiction(conn, actor_type="state", jurisdiction="state", stats=stats)
 
     print(f"[pipeline] Done. Stats: {stats}")
     return stats

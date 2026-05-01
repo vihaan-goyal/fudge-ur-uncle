@@ -74,9 +74,14 @@ def _row_to_alert(row: sqlite3.Row) -> dict:
     else:
         time_str = "recently"
 
+    actor_type = row["actor_type"]
+    actor_id = row["actor_id"]
     return {
         "id": row["id"],
-        "bioguide_id": row["bioguide_id"],
+        "actor_type": actor_type,
+        "actor_id": actor_id,
+        # Legacy field — populated for federal alerts so existing clients keep working.
+        "bioguide_id": actor_id if actor_type == "federal" else None,
         "headline": row["headline"],
         "body": row["body"],
         "score": round(row["score"], 3),
@@ -100,17 +105,27 @@ def _row_to_alert(row: sqlite3.Row) -> dict:
 
 @router.get("")
 async def list_alerts(
-    bioguide_id: Optional[str] = Query(None, description="Filter to a single legislator"),
+    bioguide_id: Optional[str] = Query(None, description="Federal-only convenience: maps to actor_type=federal,actor_id=<bioguide_id>"),
+    actor_type: Optional[str] = Query(None, description="'federal' or 'state'"),
+    actor_id: Optional[str] = Query(None, description="Bioguide ID (federal) or Legiscan people_id (state)"),
     urgent_only: bool = Query(False),
     limit: int = Query(20, ge=1, le=100),
     include_dismissed: bool = Query(False),
 ):
     """List recent alerts, sorted by score descending."""
+    # Backward-compat: bioguide_id implies federal scope.
+    if bioguide_id and not actor_id:
+        actor_type = "federal"
+        actor_id = bioguide_id
+
     where = []
     params = []
-    if bioguide_id:
-        where.append("a.bioguide_id = ?")
-        params.append(bioguide_id)
+    if actor_type:
+        where.append("a.actor_type = ?")
+        params.append(actor_type)
+    if actor_id:
+        where.append("a.actor_id = ?")
+        params.append(actor_id)
     if urgent_only:
         where.append("a.urgent = 1")
     if not include_dismissed:
@@ -120,7 +135,7 @@ async def list_alerts(
     params.append(limit)
 
     sql = f"""
-        SELECT a.id, a.bioguide_id, a.headline, a.body, a.score, a.urgent,
+        SELECT a.id, a.actor_type, a.actor_id, a.headline, a.body, a.score, a.urgent,
                a.signals_json, a.created_at,
                d.pac_name, d.industry, d.amount, d.donation_date,
                v.bill_number, v.title, v.category, v.scheduled_date
@@ -139,7 +154,8 @@ async def list_alerts(
     return {
         "count": len(alerts),
         "filters": {
-            "bioguide_id": bioguide_id,
+            "actor_type": actor_type,
+            "actor_id": actor_id,
             "urgent_only": urgent_only,
             "include_dismissed": include_dismissed,
         },
@@ -149,8 +165,23 @@ async def list_alerts(
 
 @router.get("/by-rep/{bioguide_id}")
 async def alerts_for_rep(bioguide_id: str, limit: int = Query(20, ge=1, le=100)):
-    """Convenience endpoint: alerts for a specific legislator."""
-    return await list_alerts(bioguide_id=bioguide_id, limit=limit)
+    """Convenience endpoint: alerts for a specific federal legislator."""
+    # Pass explicit booleans — calling list_alerts as a plain function would
+    # otherwise inherit FastAPI's `Query(False)` defaults, which evaluate
+    # truthy and silently filter to urgent-only.
+    return await list_alerts(
+        bioguide_id=bioguide_id, limit=limit,
+        urgent_only=False, include_dismissed=False,
+    )
+
+
+@router.get("/by-actor/{actor_type}/{actor_id}")
+async def alerts_for_actor(actor_type: str, actor_id: str, limit: int = Query(20, ge=1, le=100)):
+    """Generic convenience endpoint: alerts for any actor (federal or state)."""
+    return await list_alerts(
+        actor_type=actor_type, actor_id=actor_id, limit=limit,
+        urgent_only=False, include_dismissed=False,
+    )
 
 
 @router.post("/{alert_id}/dismiss")

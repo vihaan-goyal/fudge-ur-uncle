@@ -30,6 +30,19 @@ _PROFILE_TTL_HOURS = 24
 _VOTES_TTL_HOURS = 24
 # How many of the rep's most-recent sponsored bills to probe for roll calls.
 _VOTES_BILL_LIMIT = 8
+# 6-hour TTL: master list (active bills) shifts within a session as bills
+# advance through chambers, but not so fast that intra-day refresh is needed.
+_BILLS_TTL_HOURS = 6
+
+# Bill status codes: see Legiscan docs.
+# We treat "engrossed" (passed one chamber) as the imminent-vote signal.
+STATUS_INTRODUCED = 1
+STATUS_ENGROSSED = 2
+STATUS_ENROLLED = 3
+STATUS_PASSED = 4
+STATUS_VETOED = 5
+STATUS_FAILED = 6
+IMMINENT_VOTE_STATUSES = {STATUS_ENGROSSED}  # add STATUS_ENROLLED later if needed
 
 
 # ---- Sample data for offline/no-key dev ---------------------------
@@ -74,6 +87,52 @@ SAMPLE_STATE_LEGISLATORS = {
         },
     ]
 }
+
+SAMPLE_ACTIVE_BILLS = {
+    "CT": [
+        {
+            "bill_id": 1900001,
+            "number": "SB-1",
+            "title": "An Act Concerning Affordable Housing And Tenant Protections",
+            "description": "Expands rental assistance and caps annual rent increases for buildings over 30 units.",
+            "status": 2,                     # 2 = engrossed: passed one chamber
+            "status_date": None,             # filled at sample-load time
+            "last_action": "Passed in Senate, sent to House",
+            "chamber": "Senate",
+        },
+        {
+            "bill_id": 1900002,
+            "number": "HB-5485",
+            "title": "An Act Concerning Pharmaceutical Drug Pricing Transparency",
+            "description": "Requires drug manufacturers to disclose price increases over 25% in any 12-month period.",
+            "status": 2,
+            "status_date": None,
+            "last_action": "Passed in House, referred to Senate",
+            "chamber": "House",
+        },
+        {
+            "bill_id": 1900003,
+            "number": "SB-872",
+            "title": "An Act Concerning Climate Change And Renewable Energy Standards",
+            "description": "Sets a 100% zero-carbon electricity standard by 2040.",
+            "status": 2,
+            "status_date": None,
+            "last_action": "Passed in Senate, sent to House",
+            "chamber": "Senate",
+        },
+        {
+            "bill_id": 1900004,
+            "number": "HB-6618",
+            "title": "An Act Concerning State University Tuition And Student Loans",
+            "description": "Caps tuition increases and creates a low-interest student loan refinancing program.",
+            "status": 1,                     # introduced — too early to alert
+            "status_date": None,
+            "last_action": "Referred to Joint Committee on Higher Education",
+            "chamber": "House",
+        },
+    ]
+}
+
 
 SAMPLE_LEGISLATOR_PROFILE = {
     9001: {
@@ -352,3 +411,100 @@ async def get_legislator_votes(people_id: int) -> list[dict]:
     ai_cache.set(cache_key, results, ttl_hours=_VOTES_TTL_HOURS)
     print(f"[legiscan] votes for {people_id}: {len(results)} roll calls")
     return results
+
+
+# ---- Active bills (master list) -----------------------------------
+
+def _normalize_bill(b: dict) -> dict:
+    """Reduce a Legiscan masterlist row to the fields the alerts pipeline needs."""
+    status = b.get("status")
+    try:
+        status = int(status) if status is not None else None
+    except (TypeError, ValueError):
+        status = None
+    return {
+        "bill_id": b.get("bill_id"),
+        "number": b.get("number") or b.get("bill_number") or "",
+        "title": b.get("title") or "",
+        "description": b.get("description") or "",
+        "status": status,
+        "status_date": b.get("status_date") or b.get("last_action_date") or "",
+        "last_action": b.get("last_action") or "",
+        "last_action_date": b.get("last_action_date") or "",
+        # masterlist doesn't include chamber, but body code (H/S) is sometimes
+        # in `body` or inferable from the bill number prefix.
+        "chamber": _infer_chamber(b),
+    }
+
+
+def _infer_chamber(b: dict) -> str:
+    """Pick a chamber for a Legiscan bill row from whatever fields are present."""
+    body = (b.get("body") or "").upper()
+    if body in ("H", "A"):
+        return "House"
+    if body == "S":
+        return "Senate"
+    number = (b.get("number") or b.get("bill_number") or "").upper()
+    if number.startswith(("HB", "HR", "AB")):
+        return "House"
+    if number.startswith(("SB", "SR")):
+        return "Senate"
+    return ""
+
+
+async def get_active_bills(state: str) -> list[dict]:
+    """
+    Return bills in the state's current session that are at "imminent vote"
+    status (engrossed = passed one chamber, headed to the other).
+
+    The Legiscan masterlist for a session can be hundreds to thousands of
+    bills; we filter to STATUS_ENGROSSED here to keep downstream classification
+    cheap. Cached 6h via ai_cache. Falls back to SAMPLE_ACTIVE_BILLS when no
+    key is set or the upstream fails.
+    """
+    state = state.upper()
+    cache_key = f"legiscan:active_bills:{state}"
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if not LEGISCAN_API_KEY:
+        return _sample_active_bills(state)
+
+    try:
+        sessions_data = await _call("getSessionList", state=state)
+        sessions = sessions_data.get("sessions") or []
+        if not sessions:
+            return _sample_active_bills(state)
+        current = max(sessions, key=lambda s: s.get("session_id", 0))
+        session_id = current["session_id"]
+
+        master_data = await _call("getMasterList", id=session_id)
+        masterlist = master_data.get("masterlist") or {}
+        # Legiscan returns the masterlist as numeric-string-keyed dicts plus a
+        # "session" key with metadata; iterate entries that look like bills.
+        rows = [v for k, v in masterlist.items() if k != "session" and isinstance(v, dict)]
+        results = [_normalize_bill(r) for r in rows]
+        results = [b for b in results if b["status"] in IMMINENT_VOTE_STATUSES]
+        # Newest status first so the alerts pipeline sees recent activity first.
+        results.sort(key=lambda b: b.get("status_date", ""), reverse=True)
+        ai_cache.set(cache_key, results, ttl_hours=_BILLS_TTL_HOURS)
+        print(f"[legiscan] {state}: {len(results)} active bills (engrossed) from session {session_id}")
+        return results
+    except Exception as e:
+        print(f"[legiscan] active-bills fetch for {state} failed ({e}), using sample data")
+        return _sample_active_bills(state)
+
+
+def _sample_active_bills(state: str) -> list[dict]:
+    """Sample active bills with status_date set to today so V (vote-proximity) is high."""
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    out = []
+    for b in SAMPLE_ACTIVE_BILLS.get(state, []):
+        clone = dict(b)
+        if not clone.get("status_date"):
+            clone["status_date"] = today
+        out.append(clone)
+    # Mirror the live filter so sample/live behave identically.
+    return [b for b in out if b.get("status") in IMMINENT_VOTE_STATUSES]

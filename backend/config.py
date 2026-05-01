@@ -17,6 +17,7 @@ LEGISCAN_API_KEY = os.getenv("LEGISCAN_API_KEY", "")
 GUARDIAN_API_KEY = os.getenv("GUARDIAN_API_KEY", "")
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+FTM_API_KEY = os.getenv("FTM_API_KEY", "")
 
 # -- Base URLs --
 GUARDIAN_BASE = "https://content.guardianapis.com"

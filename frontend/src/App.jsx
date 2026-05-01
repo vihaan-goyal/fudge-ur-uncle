@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { api, SAMPLE } from "./api.js";
+import { api, auth, SAMPLE } from "./api.js";
 
 // ============================================================
 // CONSTANTS
@@ -29,6 +29,7 @@ const SCREENS = {
   STATE_REP_VOTING: "state_rep_voting",
   STATE_REP_STANCES: "state_rep_stances",
   STATE_REP_PROMISES: "state_rep_promises",
+  STATE_REP_ALERTS: "state_rep_alerts",
 };
 
 const ISSUES = [
@@ -360,8 +361,32 @@ const SplashScreen = ({ onNav, offline }) => (
 );
 
 // 2. CREATE ACCOUNT
-const CreateAccountScreen = ({ onNav, onSetState, offline }) => {
+const CreateAccountScreen = ({ onNav, onSignedIn, offline }) => {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [state, setStateVal] = useState("CT");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setError(null);
+    if (!name.trim()) return setError("Name is required");
+    if (!email.trim()) return setError("Email is required");
+    if (password.length < 8) return setError("Password must be at least 8 characters");
+    setSubmitting(true);
+    try {
+      const res = await api.signup({ email: email.trim(), password, name: name.trim(), state });
+      auth.setSession(res.token, res.user);
+      onSignedIn(res.user);
+      onNav(SCREENS.ISSUE_SELECT);
+    } catch (e) {
+      setError(e.detail || e.message || "Signup failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
@@ -372,11 +397,11 @@ const CreateAccountScreen = ({ onNav, onSetState, offline }) => {
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
             <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Full Name</label>
-            <input style={s.input} placeholder="Jane Doe" />
+            <input style={s.input} placeholder="Jane Doe" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div>
             <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
-            <input style={s.input} placeholder="jane@example.com" />
+            <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div>
             <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>State (2-letter)</label>
@@ -387,8 +412,17 @@ const CreateAccountScreen = ({ onNav, onSetState, offline }) => {
           </div>
           <div style={s.divider} />
           <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
-          <input style={s.input} type="password" placeholder="Min 8 characters" />
-          <button style={{ ...s.btn("primary"), marginTop: 8 }} onClick={() => { onSetState(state); onNav(SCREENS.ISSUE_SELECT); }}>Continue</button>
+          <input style={s.input} type="password" autoComplete="new-password" placeholder="Min 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
+          {error && (
+            <div style={{ fontSize: 11, color: colors.red, fontFamily: font }}>{error}</div>
+          )}
+          <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
+            {submitting ? "Creating..." : "Continue"}
+          </button>
+          <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted, fontFamily: font }}>
+            Already have an account?{" "}
+            <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.LOGIN)}>Log in</span>
+          </div>
         </div>
       </div>
     </div>
@@ -396,34 +430,86 @@ const CreateAccountScreen = ({ onNav, onSetState, offline }) => {
 };
 
 // 3. LOGIN
-const LoginScreen = ({ onNav, offline }) => (
-  <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
-    <StatusBar offline={offline} />
-    <div style={{ ...s.body, paddingTop: 20 }}>
-      <BackButton onClick={() => onNav(SCREENS.SPLASH)} />
-      <h2 style={{ ...s.headerTitle, marginBottom: 20 }}>Welcome Back</h2>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div>
-          <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
-          <input style={s.input} placeholder="jane@example.com" />
+const LoginScreen = ({ onNav, onSignedIn, offline }) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setError(null);
+    if (!email.trim() || !password) return setError("Email and password required");
+    setSubmitting(true);
+    try {
+      const res = await api.login({ email: email.trim(), password });
+      auth.setSession(res.token, res.user);
+      onSignedIn(res.user);
+      onNav(SCREENS.DASHBOARD);
+    } catch (e) {
+      setError(e.detail || e.message || "Login failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingTop: 20 }}>
+        <BackButton onClick={() => onNav(SCREENS.SPLASH)} />
+        <h2 style={{ ...s.headerTitle, marginBottom: 20 }}>Welcome Back</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
+            <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
+            <input style={s.input} type="password" autoComplete="current-password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </div>
+          {error && (
+            <div style={{ fontSize: 11, color: colors.red, fontFamily: font }}>{error}</div>
+          )}
+          <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
+            {submitting ? "Logging in..." : "Log In"}
+          </button>
+          <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted, fontFamily: font }}>
+            New here?{" "}
+            <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Create an account</span>
+          </div>
         </div>
-        <div>
-          <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
-          <input style={s.input} type="password" placeholder="Enter password" />
-        </div>
-        <button style={{ ...s.btn("primary"), marginTop: 8 }} onClick={() => onNav(SCREENS.DASHBOARD)}>Log In</button>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // 4. ISSUE SELECT
-const IssueSelectScreen = ({ onNav, offline }) => {
-  const [selected, setSelected] = useState(["Healthcare", "Environment"]);
+const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
+  const initial = (currentUser?.issues && currentUser.issues.length > 0)
+    ? currentUser.issues.slice(0, 5)
+    : ["Healthcare", "Environment"];
+  const [selected, setSelected] = useState(initial);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
   const toggle = (issue) => {
     if (selected.includes(issue)) setSelected(selected.filter((i) => i !== issue));
     else if (selected.length < 5) setSelected([...selected, issue]);
   };
+
+  const done = async () => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await onSaveIssues(selected);
+      onNav(SCREENS.DASHBOARD);
+    } catch (e) {
+      setError(e.detail || e.message || "Could not save");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
@@ -438,8 +524,11 @@ const IssueSelectScreen = ({ onNav, offline }) => {
           ))}
         </div>
         <div style={{ fontSize: 12, color: colors.textMuted, fontFamily: font, marginBottom: 12 }}>{selected.length}/5 selected</div>
-        <button style={s.btn("primary")} onClick={() => onNav(SCREENS.DASHBOARD)}>
-          Done - Show Me My Reps
+        {error && (
+          <div style={{ fontSize: 11, color: colors.red, fontFamily: font, marginBottom: 8 }}>{error}</div>
+        )}
+        <button style={{ ...s.btn("primary"), opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={done}>
+          {submitting ? "Saving..." : "Done - Show Me My Reps"}
         </button>
       </div>
     </div>
@@ -1603,15 +1692,30 @@ const AlertsScreen = ({ onNav }) => {
 }
 
 // 17. SETTINGS
-const SettingsScreen = ({ onNav, userState, onSetState }) => {
+const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, onSignOut, onDeleteAccount }) => {
   const [editState, setEditState] = useState(userState || "CT");
   const [backendStatus, setBackendStatus] = useState(null);
+  const [saveStatus, setSaveStatus] = useState(null);
 
   useEffect(() => {
     api.health()
       .then((d) => setBackendStatus({ ok: true, data: d }))
       .catch((e) => setBackendStatus({ ok: false, error: e.message }));
   }, []);
+
+  const save = async () => {
+    if (editState.length !== 2) {
+      setSaveStatus({ ok: false, msg: "Use a 2-letter state code" });
+      return;
+    }
+    setSaveStatus({ saving: true });
+    try {
+      await onSaveState(editState);
+      setSaveStatus({ ok: true, msg: "Saved" });
+    } catch (e) {
+      setSaveStatus({ ok: false, msg: e.detail || e.message || "Could not save" });
+    }
+  };
 
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
@@ -1621,13 +1725,45 @@ const SettingsScreen = ({ onNav, userState, onSetState }) => {
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <div style={s.section}>
+          <div style={s.sectionTitle}>Account</div>
+          {currentUser ? (
+            <div style={s.card}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{currentUser.name}</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginTop: 2 }}>{currentUser.email}</div>
+              <button style={{ ...s.btn("outline"), marginTop: 12 }} onClick={onSignOut}>Sign Out</button>
+              <button
+                style={{ ...s.btn("outline"), marginTop: 8, borderColor: colors.red, color: colors.red }}
+                onClick={onDeleteAccount}
+              >
+                Delete Account
+              </button>
+            </div>
+          ) : (
+            <div style={s.card}>
+              <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 10 }}>You're not signed in. Sign in to save your state and issue preferences.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={{ ...s.btn("primary"), flex: 1 }} onClick={() => onNav(SCREENS.LOGIN)}>Log In</button>
+                <button style={{ ...s.btn("outline"), flex: 1 }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Sign Up</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={s.section}>
           <div style={s.sectionTitle}>Location</div>
           <div style={s.card}>
             <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Your State (2-letter)</label>
             <div style={{ display: "flex", gap: 8 }}>
-              <input style={{ ...s.input, flex: 1 }} value={editState} onChange={(e) => setEditState(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} />
-              <button style={{ ...s.btn("primary"), width: "auto", padding: "10px 16px" }} onClick={() => onSetState(editState)}>Save</button>
+              <input style={{ ...s.input, flex: 1 }} value={editState} onChange={(e) => { setEditState(e.target.value.toUpperCase().slice(0, 2)); setSaveStatus(null); }} maxLength={2} />
+              <button style={{ ...s.btn("primary"), width: "auto", padding: "10px 16px", opacity: saveStatus?.saving ? 0.6 : 1 }} disabled={saveStatus?.saving} onClick={save}>
+                {saveStatus?.saving ? "..." : "Save"}
+              </button>
             </div>
+            {saveStatus && !saveStatus.saving && (
+              <div style={{ fontSize: 11, marginTop: 6, fontFamily: font, color: saveStatus.ok ? colors.green : colors.red }}>
+                {saveStatus.msg}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1862,6 +1998,7 @@ const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
             { icon: "vote", label: "Voting Record", sub: "Recent roll-call votes", screen: SCREENS.STATE_REP_VOTING },
             { icon: "star", label: "Voting Positions", sub: "AI stance analysis", screen: SCREENS.STATE_REP_STANCES },
             { icon: "megaphone", label: "Stated Promises", sub: "Site-scraped positions vs. votes", screen: SCREENS.STATE_REP_PROMISES },
+            { icon: "alert", label: "Alerts", sub: "Donor industry x upcoming votes", screen: SCREENS.STATE_REP_ALERTS },
           ].map((item) => (
             <div
               key={item.label}
@@ -2132,6 +2269,122 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
   );
 };
 
+const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
+  const name = stateRepData?.name || "State Legislator";
+  const [alerts, setAlerts] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!peopleId) return;
+    let cancelled = false;
+    setAlerts(null);
+    setError(null);
+    api.getAlertsForStateRep(peopleId)
+      .then((data) => { if (!cancelled) setAlerts(data.alerts || []); })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e.detail || e.message || "Failed to load alerts");
+          setAlerts([]);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [peopleId]);
+
+  const fmtMoney = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar />
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Alerts</h2>
+        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+          Industry donations × upcoming state votes
+        </div>
+
+        {error && (
+          <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>
+              Could not reach the alerts service
+            </div>
+            <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>{error}</div>
+          </div>
+        )}
+
+        {alerts === null && <Loading label="Loading alerts…" />}
+
+        {alerts && alerts.length === 0 && !error && (
+          <div style={s.card}>
+            <div style={{ fontSize: 13 }}>No alerts for this legislator yet.</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 6, lineHeight: 1.5 }}>
+              Run the state ingestion pipeline:{" "}
+              <code style={{ fontFamily: font, color: colors.accent }}>
+                python -m backend.alerts.ingest_ftm --state {stateRepData?.state || "CT"}
+              </code>{" "}
+              then{" "}
+              <code style={{ fontFamily: font, color: colors.accent }}>
+                python -m backend.alerts.ingest_state_votes --state {stateRepData?.state || "CT"}
+              </code>{" "}
+              and{" "}
+              <code style={{ fontFamily: font, color: colors.accent }}>
+                python -m backend.alerts.pipeline
+              </code>
+              .
+            </div>
+          </div>
+        )}
+
+        {alerts && alerts.map((a) => (
+          <div
+            key={a.id}
+            style={{
+              ...s.card,
+              borderColor: a.urgent ? colors.red + "44" : colors.border,
+              background: a.urgent ? colors.redDim : colors.surface,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              {a.urgent && <span style={s.badge("red")}>URGENT</span>}
+              <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginLeft: "auto" }}>
+                {a.time || "recently"}
+              </span>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, lineHeight: 1.35 }}>
+              {a.headline}
+            </div>
+            {a.body && (
+              <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
+                {a.body}
+              </div>
+            )}
+            {a.donation && a.vote && (
+              <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginBottom: 6 }}>
+                {fmtMoney(a.donation.amount)} · {a.donation.industry} → {a.vote.bill_number} ({a.vote.category})
+              </div>
+            )}
+            {a.score !== undefined && (
+              <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
+                score: {a.score.toFixed(2)} {a.signals?.T !== undefined && (
+                  <span style={{ marginLeft: 8 }}>
+                    T={a.signals.T.toFixed(2)} V={a.signals.V.toFixed(2)} D={a.signals.D.toFixed(2)} R={a.signals.R.toFixed(2)}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {alerts && alerts.length > 0 && (
+          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+            State alerts use FTM industry aggregates and Legiscan engrossed-bill statuses. Scores typically run lower than federal alerts because aggregate data carries less per-donation signal.
+          </div>
+        )}
+      </div>
+      <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
+    </div>
+  );
+};
+
 // ============================================================
 // MAIN APP
 // ============================================================
@@ -2139,7 +2392,9 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState(SCREENS.SPLASH);
   const [selectedBioguideId, setSelectedBioguideId] = useState("M001169");
-  const [userState, setUserState] = useState("CT");
+  const [userState, setUserState] = useState(() => auth.getUser()?.state || "CT");
+  const [currentUser, setCurrentUser] = useState(() => auth.getUser());
+  const [userIssues, setUserIssues] = useState(() => auth.getUser()?.issues || ["Healthcare", "Environment"]);
   const [profileData, setProfileData] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedStatePeopleId, setSelectedStatePeopleId] = useState(null);
@@ -2150,6 +2405,71 @@ export default function App() {
   useEffect(() => {
     api.health().catch(() => setGlobalOffline(true));
   }, []);
+
+  // Auto-login from stored token; if it's stale, clear and stay on splash
+  useEffect(() => {
+    if (!auth.getToken()) return;
+    api.me()
+      .then((res) => {
+        setCurrentUser(res.user);
+        if (res.user.state) setUserState(res.user.state);
+        if (res.user.issues && res.user.issues.length > 0) setUserIssues(res.user.issues);
+        setCurrentScreen(SCREENS.DASHBOARD);
+      })
+      .catch((e) => {
+        if (e.status === 401) auth.clear();
+      });
+  }, []);
+
+  const handleSignedIn = (user) => {
+    setCurrentUser(user);
+    if (user.state) setUserState(user.state);
+    if (user.issues && user.issues.length > 0) setUserIssues(user.issues);
+  };
+
+  const handleSaveState = async (newState) => {
+    if (currentUser && auth.getToken()) {
+      const res = await api.updateMe({ state: newState });
+      setCurrentUser(res.user);
+      auth.setSession(auth.getToken(), res.user);
+      setUserState(res.user.state || newState);
+    } else {
+      setUserState(newState);
+    }
+  };
+
+  const handleSaveIssues = async (newIssues) => {
+    if (currentUser && auth.getToken()) {
+      const res = await api.updateMe({ issues: newIssues });
+      setCurrentUser(res.user);
+      auth.setSession(auth.getToken(), res.user);
+      setUserIssues(res.user.issues || newIssues);
+    } else {
+      setUserIssues(newIssues);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try { await api.logout(); } catch { /* ignore */ }
+    auth.clear();
+    setCurrentUser(null);
+    setUserIssues(["Healthcare", "Environment"]);
+    setCurrentScreen(SCREENS.SPLASH);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm("Permanently delete your account? This can't be undone.")) return;
+    try {
+      await api.deleteAccount();
+    } catch (e) {
+      alert(`Could not delete account: ${e.detail || e.message}`);
+      return;
+    }
+    auth.clear();
+    setCurrentUser(null);
+    setUserIssues(["Healthcare", "Environment"]);
+    setCurrentScreen(SCREENS.SPLASH);
+  };
 
   const navigate = (screen) => setCurrentScreen(screen);
 
@@ -2174,9 +2494,9 @@ export default function App() {
     const common = { onNav: navigate, offline: globalOffline };
     switch (currentScreen) {
       case SCREENS.SPLASH: return <SplashScreen {...common} />;
-      case SCREENS.CREATE_ACCOUNT: return <CreateAccountScreen {...common} onSetState={setUserState} />;
-      case SCREENS.LOGIN: return <LoginScreen {...common} />;
-      case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} />;
+      case SCREENS.CREATE_ACCOUNT: return <CreateAccountScreen {...common} onSignedIn={handleSignedIn} />;
+      case SCREENS.LOGIN: return <LoginScreen {...common} onSignedIn={handleSignedIn} />;
+      case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} currentUser={currentUser} onSaveIssues={handleSaveIssues} />;
       case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} />;
       case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} onSelectStateRep={selectStateRep} userState={userState} />;
       case SCREENS.POLITICIAN_PROFILE: return <PoliticianProfileScreen {...common} bioguideId={selectedBioguideId} onSetProfileData={setProfileData} />;
@@ -2195,7 +2515,8 @@ export default function App() {
       case SCREENS.STATE_REP_VOTING: return <StateRepVotingScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_STANCES: return <StateRepStancesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_PROMISES: return <StateRepPromisesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
-      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSetState={setUserState} />;
+      case SCREENS.STATE_REP_ALERTS: return <StateRepAlertsScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
+      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
       default: return <SplashScreen {...common} />;
     }
   };
@@ -2224,6 +2545,7 @@ export default function App() {
     [SCREENS.STATE_REP_VOTING, "State Voting"],
     [SCREENS.STATE_REP_STANCES, "State Stances"],
     [SCREENS.STATE_REP_PROMISES, "State Promises"],
+    [SCREENS.STATE_REP_ALERTS, "State Alerts"],
     [SCREENS.SETTINGS, "Settings"],
   ];
 

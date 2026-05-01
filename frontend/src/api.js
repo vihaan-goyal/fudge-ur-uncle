@@ -8,23 +8,54 @@
  */
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
+const TOKEN_KEY = "fuu_token";
+const USER_KEY = "fuu_user";
+
+export const auth = {
+  getToken: () => localStorage.getItem(TOKEN_KEY),
+  getUser: () => {
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+  },
+  setSession: (token, user) => {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  },
+  clear: () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  },
+};
 
 // Lightweight fetch wrapper with timeout + JSON parsing
 async function apiRequest(path, { method = "GET", body, timeout = 45000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
+  const headers = {};
+  if (body) headers["Content-Type"] = "application/json";
+  const token = auth.getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : {},
+      headers,
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`API ${res.status}: ${text || res.statusText}`);
+      let detail = res.statusText;
+      try {
+        const j = await res.json();
+        if (j && j.detail) detail = j.detail;
+      } catch { /* ignore */ }
+      const err = new Error(`API ${res.status}: ${detail}`);
+      err.status = res.status;
+      err.detail = detail;
+      throw err;
     }
     return await res.json();
   } finally {
@@ -36,6 +67,21 @@ async function apiRequest(path, { method = "GET", body, timeout = 45000 } = {}) 
 
 export const api = {
   health: () => apiRequest("/api/health"),
+
+  signup: ({ email, password, name, state }) =>
+    apiRequest("/api/auth/signup", { method: "POST", body: { email, password, name, state } }),
+
+  login: ({ email, password }) =>
+    apiRequest("/api/auth/login", { method: "POST", body: { email, password } }),
+
+  logout: () => apiRequest("/api/auth/logout", { method: "POST" }),
+
+  me: () => apiRequest("/api/auth/me"),
+
+  updateMe: ({ name, state }) =>
+    apiRequest("/api/auth/me", { method: "PATCH", body: { name, state } }),
+
+  deleteAccount: () => apiRequest("/api/auth/me", { method: "DELETE" }),
 
   getRepsByState: (state) =>
     apiRequest(`/api/reps/by-state/${encodeURIComponent(state)}`),
@@ -94,14 +140,19 @@ export const api = {
   getBill: (congress, billType, billNumber) =>
     apiRequest(`/api/bills/${congress}/${billType}/${billNumber}`),
 
-   getAlerts: ({ urgentOnly = false, limit = 20 } = {}) => {
+   getAlerts: ({ urgentOnly = false, limit = 20, actorType, actorId } = {}) => {
       const params = new URLSearchParams({ limit });
       if (urgentOnly) params.set("urgent_only", "true");
+      if (actorType) params.set("actor_type", actorType);
+      if (actorId) params.set("actor_id", actorId);
       return apiRequest(`/api/alerts?${params}`);
     },
 
     getAlertsForRep: (bioguideId, limit = 20) =>
       apiRequest(`/api/alerts/by-rep/${encodeURIComponent(bioguideId)}?limit=${limit}`),
+
+    getAlertsForStateRep: (peopleId, limit = 20) =>
+      apiRequest(`/api/alerts/by-actor/state/${encodeURIComponent(peopleId)}?limit=${limit}`),
 
   getEvents: (state, limit = 20) => {
     const params = new URLSearchParams({ limit });

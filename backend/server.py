@@ -16,6 +16,7 @@ from typing import Optional
 from api import legislators, openfec, congress_gov, whoboughtmyrep, events
 from api import guardian, news, ai_summary, stance_analysis, promises, legiscan, state_sites
 from api.alerts_router import router as alerts_router
+from api.auth import router as auth_router
 import config
 
 app = FastAPI(
@@ -33,6 +34,7 @@ app.add_middleware(
 )
 
 app.include_router(alerts_router)
+app.include_router(auth_router)
 
 # ============================================================
 # HEALTH
@@ -48,6 +50,7 @@ def _health_payload():
             "data_gov": config.DATA_GOV_API_KEY != "DEMO_KEY",
             "whoboughtmyrep": bool(config.WHOBOUGHTMYREP_API_KEY),
             "legiscan": bool(config.LEGISCAN_API_KEY),
+            "ftm": bool(config.FTM_API_KEY),
         },
     }
 

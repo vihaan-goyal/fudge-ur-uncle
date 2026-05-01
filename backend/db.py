@@ -28,7 +28,8 @@ sqlite3.register_converter("TIMESTAMP", lambda b: datetime.fromisoformat(b.decod
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS donations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    bioguide_id TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'federal',
+    actor_id TEXT NOT NULL,
     pac_name TEXT NOT NULL,
     industry TEXT NOT NULL,
     amount REAL NOT NULL,
@@ -36,21 +37,25 @@ CREATE TABLE IF NOT EXISTS donations (
     fec_filing_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_donations_rep ON donations(bioguide_id);
+CREATE INDEX IF NOT EXISTS idx_donations_actor ON donations(actor_type, actor_id);
 CREATE INDEX IF NOT EXISTS idx_donations_industry ON donations(industry);
 CREATE INDEX IF NOT EXISTS idx_donations_date ON donations(donation_date);
 
 CREATE TABLE IF NOT EXISTS scheduled_votes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    bill_number TEXT NOT NULL UNIQUE,
+    jurisdiction TEXT NOT NULL DEFAULT 'federal',
+    state_code TEXT,
+    bill_number TEXT NOT NULL,
     title TEXT NOT NULL,
     category TEXT NOT NULL,
     scheduled_date DATE NOT NULL,
     chamber TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (jurisdiction, state_code, bill_number)
 );
 CREATE INDEX IF NOT EXISTS idx_votes_category ON scheduled_votes(category);
 CREATE INDEX IF NOT EXISTS idx_votes_date ON scheduled_votes(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_votes_jurisdiction ON scheduled_votes(jurisdiction, state_code);
 
 CREATE TABLE IF NOT EXISTS news_mentions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,7 +73,8 @@ CREATE INDEX IF NOT EXISTS idx_news_published ON news_mentions(published_at);
 
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    bioguide_id TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'federal',
+    actor_id TEXT NOT NULL,
     donation_id INTEGER NOT NULL,
     vote_id INTEGER NOT NULL,
     score REAL NOT NULL,
@@ -82,17 +88,18 @@ CREATE TABLE IF NOT EXISTS alerts (
     FOREIGN KEY (vote_id) REFERENCES scheduled_votes(id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_unique
-    ON alerts(bioguide_id, donation_id, vote_id);
+    ON alerts(actor_type, actor_id, donation_id, vote_id);
 CREATE INDEX IF NOT EXISTS idx_alerts_score ON alerts(score DESC);
 
 CREATE TABLE IF NOT EXISTS industry_baselines (
-    bioguide_id TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'federal',
+    actor_id TEXT NOT NULL,
     industry TEXT NOT NULL,
     mean_amount REAL NOT NULL,
     stddev_amount REAL NOT NULL,
     n_samples INTEGER NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (bioguide_id, industry)
+    PRIMARY KEY (actor_type, actor_id, industry)
 );
 
 CREATE TABLE IF NOT EXISTS ai_cache (
@@ -102,6 +109,42 @@ CREATE TABLE IF NOT EXISTS ai_cache (
     expires_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_cache_expires ON ai_cache(expires_at);
+
+-- Maps an actor (federal bioguide_id or state Legiscan people_id) to its
+-- ID in an external dataset (FTM eid, OpenSecrets ID, FEC candidate ID, etc.).
+-- Lets us pull data from multiple sources without leaking their IDs into
+-- the rest of the schema.
+CREATE TABLE IF NOT EXISTS external_ids (
+    actor_type TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    matched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (actor_type, actor_id, source)
+);
+CREATE INDEX IF NOT EXISTS idx_external_ids_reverse ON external_ids(source, external_id);
+
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    name TEXT NOT NULL,
+    state TEXT,
+    issues TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 """
 
 
@@ -122,10 +165,114 @@ def connect():
 
 
 def init_db() -> None:
-    """Create all tables if they don't exist."""
+    """Bring an existing DB up to current shape, then create anything missing.
+
+    Migration runs first because SCHEMA contains indexes that reference columns
+    that legacy DBs don't have yet — the CREATE INDEX would fail otherwise.
+    """
+    # Migrations run on a separate connection so we can toggle FK enforcement
+    # — table-recreate steps need it off.
+    _migrate()
     with connect() as conn:
         conn.executescript(SCHEMA)
     print(f"[db] Initialized at {DB_PATH}")
+
+
+def _table_columns(conn, table: str) -> set[str]:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _migrate() -> None:
+    """Idempotent in-place migrations for DBs created before a column existed.
+
+    Safe to run repeatedly — each step checks current schema first.
+    """
+    conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn.row_factory = sqlite3.Row
+    try:
+        # FK off for the duration; some steps recreate tables that others reference.
+        conn.execute("PRAGMA foreign_keys = OFF")
+
+        # users.issues (added with the auth feature)
+        u_cols = _table_columns(conn, "users")
+        if u_cols and "issues" not in u_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN issues TEXT")
+
+        # donations: bioguide_id -> actor_id (+ actor_type discriminator)
+        d_cols = _table_columns(conn, "donations")
+        if d_cols and "bioguide_id" in d_cols and "actor_id" not in d_cols:
+            conn.execute("ALTER TABLE donations RENAME COLUMN bioguide_id TO actor_id")
+            conn.execute("ALTER TABLE donations ADD COLUMN actor_type TEXT NOT NULL DEFAULT 'federal'")
+            conn.execute("DROP INDEX IF EXISTS idx_donations_rep")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_donations_actor ON donations(actor_type, actor_id)")
+
+        # alerts: same shape change
+        a_cols = _table_columns(conn, "alerts")
+        if a_cols and "bioguide_id" in a_cols and "actor_id" not in a_cols:
+            conn.execute("ALTER TABLE alerts RENAME COLUMN bioguide_id TO actor_id")
+            conn.execute("ALTER TABLE alerts ADD COLUMN actor_type TEXT NOT NULL DEFAULT 'federal'")
+            conn.execute("DROP INDEX IF EXISTS idx_alerts_unique")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_unique "
+                "ON alerts(actor_type, actor_id, donation_id, vote_id)"
+            )
+
+        # industry_baselines: PK changes, so table swap (rename column alone won't shift the PK)
+        b_cols = _table_columns(conn, "industry_baselines")
+        if b_cols and "bioguide_id" in b_cols and "actor_id" not in b_cols:
+            conn.executescript("""
+                CREATE TABLE industry_baselines_new (
+                    actor_type TEXT NOT NULL DEFAULT 'federal',
+                    actor_id TEXT NOT NULL,
+                    industry TEXT NOT NULL,
+                    mean_amount REAL NOT NULL,
+                    stddev_amount REAL NOT NULL,
+                    n_samples INTEGER NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (actor_type, actor_id, industry)
+                );
+                INSERT INTO industry_baselines_new
+                    (actor_type, actor_id, industry, mean_amount, stddev_amount, n_samples, updated_at)
+                    SELECT 'federal', bioguide_id, industry, mean_amount, stddev_amount, n_samples, updated_at
+                    FROM industry_baselines;
+                DROP TABLE industry_baselines;
+                ALTER TABLE industry_baselines_new RENAME TO industry_baselines;
+            """)
+
+        # scheduled_votes: bill_number UNIQUE -> (jurisdiction, state_code, bill_number) UNIQUE
+        v_cols = _table_columns(conn, "scheduled_votes")
+        if v_cols and "jurisdiction" not in v_cols:
+            conn.executescript("""
+                CREATE TABLE scheduled_votes_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    jurisdiction TEXT NOT NULL DEFAULT 'federal',
+                    state_code TEXT,
+                    bill_number TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    scheduled_date DATE NOT NULL,
+                    chamber TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (jurisdiction, state_code, bill_number)
+                );
+                INSERT INTO scheduled_votes_new
+                    (id, jurisdiction, state_code, bill_number, title, category, scheduled_date, chamber, created_at)
+                    SELECT id, 'federal', NULL, bill_number, title, category, scheduled_date, chamber, created_at
+                    FROM scheduled_votes;
+                DROP TABLE scheduled_votes;
+                ALTER TABLE scheduled_votes_new RENAME TO scheduled_votes;
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_votes_category ON scheduled_votes(category)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_votes_date ON scheduled_votes(scheduled_date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_votes_jurisdiction ON scheduled_votes(jurisdiction, state_code)")
+
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys = ON")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
