@@ -127,6 +127,15 @@ CATEGORY_KEYWORDS = [
         r"\bfood safety\b",
         r"\bsnap benefit",
     ]),
+    ("housing", [
+        r"\baffordable housing\b",
+        r"\bhousing\b",
+        r"\brent control\b",
+        r"\bzoning\b",
+        r"\beviction\b",
+        r"\bfair housing\b",
+        r"\bhomeless",
+    ]),
 ]
 
 

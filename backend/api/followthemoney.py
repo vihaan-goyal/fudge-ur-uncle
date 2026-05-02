@@ -2,17 +2,16 @@
 FollowTheMoney (NIMP) API wrapper - state campaign-finance aggregates.
 
 Powers `/api/state-alerts/*`. The free tier is generous but the docs are
-notoriously cryptic — every request takes a `gro` (group), `for` (filter),
-and various other coded params. The endpoint constants below are the
-best-known-good values; if NIMP renames anything, swap them here in one
-place rather than threading through ingest_ftm.py.
+notoriously cryptic — every request takes a `gro` (group), various filter
+prefixes, and `dataset` (candidates|contributions|...). The endpoint
+constants below are verified against the live API.
 
 Public functions:
   - find_candidate_eid(name, state, chamber, party) -> (eid, confidence) | None
-  - get_industry_aggregates(eid, cycle) -> list[{catcode, amount, n_records}]
+  - get_industry_aggregates(eid) -> list[{industry_name, amount, n_records}]
 
-Both go through ai_cache (24h TTL) because the free tier's monthly cap is
-real and aggregates barely move within a cycle.
+Both go through ai_cache because the free tier's monthly cap is real and
+aggregates barely move within a cycle.
 
 Falls back to SAMPLE_FTM_DATA when:
   - FTM_API_KEY is not set, OR
@@ -20,6 +19,46 @@ Falls back to SAMPLE_FTM_DATA when:
 
 This mirrors the legiscan.py / news.py / guardian.py pattern of "always
 return something usable so the demo runs even without keys."
+
+## Verified API shape (2026-05, against live FTM)
+
+Industry breakdown of donations RECEIVED by a candidate:
+    GET https://api.followthemoney.org/?
+        APIKey=...&mode=json&
+        dataset=contributions&
+        gro=d-cci&            # group by Contributor General Industry
+        c-t-eid=<EID>         # filter to donations TO this candidate
+Returns rows like:
+    {"General_Industry": "Pharmaceuticals & Health Products",
+     "Broad_Sector": "Health",
+     "#_of_Records": "104",
+     "Total_$": "1517848.49"}
+
+Profile lookup:
+    GET https://api.followthemoney.org/entity.php?eid=<EID>&APIKey=...&mode=json
+Returns {data: {overview, AsCandidate, AsContributor, Relationships}}.
+overview.industry has employer/CatCode history; AsCandidate/AsContributor
+are summary stubs whose `request` field is the URL-fragment for follow-up.
+
+## Known limitations
+
+1. **No cycle filter on grouped contributions.** `y=`, `f-y=`, `f-y-y=`
+   all return 0 records when combined with grouping. FTM's grouped-
+   aggregate endpoint is lifetime-only. Per-cycle breakdown would require
+   pulling itemized rows and grouping client-side, which would burn the
+   monthly quota fast.
+
+2. **State filter for candidate enumeration is undocumented.** None of
+   `s-y-st`, `s`, `c-r-s`, `c-t-s`, `c-r-osj` honor a state filter on the
+   candidates dataset. The eid-lookup path therefore can't reliably
+   enumerate "all CT state legislators" — for now it falls back to sample
+   data when a live match isn't found. See _live_find_eid TODO below.
+
+3. **Industry strings are FTM/CRP names, not Catcodes.** The `gro=d-cci`
+   grouping returns `General_Industry` strings (e.g. "Oil & Gas"). The
+   ingester translates these via `catcode_map.industry_for_ftm_name`.
+   Buckets like "Candidate Contributions" (self-funding), "Uncoded",
+   "Public Subsidy", "Retired" are mapped to `_ignore` and dropped.
 """
 import asyncio
 from difflib import SequenceMatcher
@@ -32,6 +71,7 @@ from api import ai_cache
 
 _TIMEOUT = 20.0
 _FTM_BASE = "https://api.followthemoney.org/"
+_FTM_ENTITY = "https://api.followthemoney.org/entity.php"
 
 # Cache TTLs in hours
 _EID_TTL = 24 * 7      # eid lookups: a state legislator's FTM mapping is stable
@@ -52,46 +92,52 @@ SAMPLE_FTM_EIDS = {
     ("CT", "Matt Ritter"): "FTM-CT-9002",
 }
 
-# Keyed by (eid, cycle). Returns list[{catcode, amount, n_records}].
-# Industries chosen to give the demo something the alert pipeline will
-# actually flag against SAMPLE_ACTIVE_BILLS in legiscan.py:
-#   - HB-5485 (pharma drug pricing) <-- pharma + health-insurance donations
-#   - SB-872  (climate / renewable)  <-- oil/gas + electric-utility donations
+# Keyed by eid only (FTM aggregates are lifetime, not per-cycle).
+# Returns list[{industry_name, amount, n_records}] using FTM-style names
+# so the live and sample paths share the same downstream mapping.
 _LOONEY_AGG = [
-    {"catcode": "H1410", "amount": 35_000.0, "n_records": 11},  # pharma
-    {"catcode": "H1300", "amount": 18_000.0, "n_records": 6},   # health insurance
-    {"catcode": "E1100", "amount": 22_000.0, "n_records": 8},   # oil & gas
-    {"catcode": "F2100", "amount": 12_500.0, "n_records": 5},   # commercial banks
-    {"catcode": "L1500", "amount": 45_000.0, "n_records": 22},  # public sector unions
+    {"industry_name": "Pharmaceuticals & Health Products", "amount": 35_000.0, "n_records": 11},
+    {"industry_name": "Health Services/HMOs", "amount": 18_000.0, "n_records": 6},
+    {"industry_name": "Oil & Gas", "amount": 22_000.0, "n_records": 8},
+    {"industry_name": "Commercial Banks", "amount": 12_500.0, "n_records": 5},
+    {"industry_name": "Public Sector Unions", "amount": 45_000.0, "n_records": 22},
 ]
 _RITTER_AGG = [
-    {"catcode": "E1100", "amount": 18_000.0, "n_records": 7},   # oil & gas
-    {"catcode": "H1410", "amount": 22_000.0, "n_records": 9},   # pharma
-    {"catcode": "F2400", "amount": 9_500.0, "n_records": 4},    # insurance
+    {"industry_name": "Oil & Gas", "amount": 18_000.0, "n_records": 7},
+    {"industry_name": "Pharmaceuticals & Health Products", "amount": 22_000.0, "n_records": 9},
+    {"industry_name": "Insurance", "amount": 9_500.0, "n_records": 4},
 ]
 SAMPLE_FTM_AGGREGATES = {
-    ("FTM-CT-9001", 2024): _LOONEY_AGG,
-    ("FTM-CT-9001", 2026): _LOONEY_AGG,
-    ("FTM-CT-9002", 2024): _RITTER_AGG,
-    ("FTM-CT-9002", 2026): _RITTER_AGG,
+    "FTM-CT-9001": _LOONEY_AGG,
+    "FTM-CT-9002": _RITTER_AGG,
 }
 
 
 # ---- Low-level HTTP -------------------------------------------------
 
-async def _ftm_get(client: httpx.AsyncClient, params: dict) -> dict:
-    """GET against FTM with the API key attached. Retries 429 with backoff."""
+async def _ftm_get(client: httpx.AsyncClient, url: str, params: dict) -> dict:
+    """GET against FTM with the API key attached. Retries 429 with backoff.
+
+    Note FTM's free tier returns HTTP 200 with {"error": "..."} when the
+    monthly quota is exhausted ("This account has reached its free API
+    call limit..."), instead of a 4xx. We surface that message and let
+    the caller fall through to sample data.
+    """
     if not FTM_API_KEY:
         raise RuntimeError("FTM_API_KEY not set")
     full = {**params, "APIKey": FTM_API_KEY, "mode": "json"}
     for attempt in range(3):
         try:
-            resp = await client.get(_FTM_BASE, params=full, timeout=_TIMEOUT)
+            resp = await client.get(url, params=full, timeout=_TIMEOUT)
             if resp.status_code == 429:
                 await asyncio.sleep(2 ** attempt)
                 continue
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            if isinstance(data, dict) and data.get("error"):
+                print(f"[ftm]   API error: {data['error']}")
+                return {}
+            return data
         except (httpx.TimeoutException, httpx.HTTPStatusError):
             if attempt == 2:
                 raise
@@ -125,43 +171,14 @@ async def _live_find_eid(
 ) -> Optional[tuple[str, float]]:
     """Search FTM's candidate index for a name match. Returns (eid, confidence) or None.
 
-    NIMP uses a candidate-search aggregation. Param names per their docs:
-      gro=c-t-id   (group: candidate, table: id)
-      so=ASC       (sort)
-      dataset=candidates
-      f-eid=...    (filter by eid — when known)
-      c-r-ot=H/S   (chamber: House/Senate)
-      s-y-st=CT    (state)
-    Verify these against current docs before relying on a real key.
+    TODO: state-filter syntax is unclear — none of the obvious tokens
+    (`s-y-st`, `s`, `c-r-s`, `c-t-s`, `c-r-osj`) honor a state filter on
+    the /?dataset=candidates&gro=c-t-id endpoint, and bare `search=name`
+    returns a global summary. Until we get clarity from FTM docs, this
+    returns None on live calls and the caller falls through to sample
+    data. The fix is probably to download FTM's static entity directory
+    and do name matching client-side, but that's a bigger change.
     """
-    chamber_code = "H" if chamber.lower().startswith("h") else "S"
-    params = {
-        "gro": "c-t-id",
-        "so": "ASC",
-        "dataset": "candidates",
-        "s-y-st": state.upper(),
-        "c-r-ot": chamber_code,
-        "search": name,
-    }
-    if party:
-        params["c-t-p"] = party.upper()[:1]  # D / R / I
-
-    data = await _ftm_get(client, params)
-    records = data.get("records") or data.get("Records") or []
-    if not records:
-        return None
-
-    best: Optional[tuple[str, float]] = None
-    for r in records:
-        candidate_name = r.get("Candidate") or r.get("name") or ""
-        eid = r.get("Candidate_Entity") or r.get("eid")
-        if not eid or not candidate_name:
-            continue
-        conf = _name_similarity(name, candidate_name)
-        if best is None or conf > best[1]:
-            best = (str(eid), conf)
-    if best and best[1] >= _MIN_MATCH_CONFIDENCE:
-        return best
     return None
 
 
@@ -192,75 +209,108 @@ async def find_candidate_eid(
         print(f"[ftm]   eid lookup failed for {name} ({state}/{chamber}): {e!r}")
         result = None
 
+    # Live eid lookup is currently a stub — fall back to sample data so the
+    # demo path keeps working even with a real key configured.
+    if result is None:
+        result = _lookup_sample_eid(name, state)
+
     ai_cache.set(cache_key, list(result) if result else [], ttl_hours=_EID_TTL)
     return result
 
 
 # ---- Industry aggregates --------------------------------------------
 
-async def _live_get_aggregates(
-    client: httpx.AsyncClient, eid: str, cycle: int
-) -> list[dict]:
-    """Pull the candidate's industry breakdown for one cycle.
+async def _live_get_aggregates(client: httpx.AsyncClient, eid: str) -> list[dict]:
+    """Pull the candidate's industry breakdown — lifetime, not per-cycle.
 
-    NIMP industry-breakdown aggregation:
-      gro=s-x-cc       (group: by Catcode)
-      dataset=candidates
-      f-eid=<EID>      (filter to this candidate)
-      y=<cycle>        (year/cycle)
-    Returns rows like {Catcode, Total_$, Records}.
-    Verify against current docs before relying on a real key.
+    Live request shape (verified):
+      dataset=contributions
+      gro=d-cci             (group by Contributor General Industry)
+      c-t-eid=<EID>         (filter: donations TO this candidate)
+
+    Returns rows shaped {industry_name: str, amount: float, n_records: int}.
+    The `industry_name` is FTM's CRP-derived `General_Industry` string,
+    e.g. "Pharmaceuticals & Health Products". Translate downstream via
+    `catcode_map.industry_for_ftm_name`.
     """
     params = {
-        "gro": "s-x-cc",
-        "dataset": "candidates",
-        "f-eid": eid,
-        "y": cycle,
+        "dataset": "contributions",
+        "gro": "d-cci",
+        "c-t-eid": eid,
     }
-    data = await _ftm_get(client, params)
+    data = await _ftm_get(client, _FTM_BASE, params)
     records = data.get("records") or data.get("Records") or []
     out = []
     for r in records:
-        catcode = r.get("Catcode") or r.get("catcode")
-        total = r.get("Total_$") or r.get("total") or 0
-        n = r.get("Records") or r.get("n_records") or 0
-        if not catcode:
+        if not isinstance(r, dict):
+            continue
+        # Each value is a small dict like {"General_Industry": "Oil & Gas"} OR
+        # the raw string — handle both.
+        gi = r.get("General_Industry")
+        if isinstance(gi, dict):
+            industry_name = gi.get("General_Industry") or gi.get("name") or ""
+        else:
+            industry_name = gi or ""
+
+        recs = r.get("#_of_Records")
+        if isinstance(recs, dict):
+            n_raw = recs.get("#_of_Records") or recs.get("n_records") or 0
+        else:
+            n_raw = recs or 0
+
+        total = r.get("Total_$")
+        if isinstance(total, dict):
+            t_raw = total.get("Total_$") or total.get("total") or 0
+        else:
+            t_raw = total or 0
+
+        if not industry_name:
             continue
         try:
-            amount = float(str(total).replace(",", "").replace("$", "")) or 0.0
+            amount = float(str(t_raw).replace(",", "").replace("$", "")) or 0.0
         except ValueError:
             amount = 0.0
         if amount <= 0:
             continue
+        try:
+            n_records = int(str(n_raw).replace(",", ""))
+        except ValueError:
+            n_records = 0
         out.append({
-            "catcode": str(catcode).strip().upper(),
+            "industry_name": str(industry_name).strip(),
             "amount": amount,
-            "n_records": int(n) if str(n).isdigit() else 0,
+            "n_records": n_records,
         })
     return out
 
 
-async def get_industry_aggregates(eid: str, cycle: int) -> list[dict]:
-    """Industry breakdown for one candidate-cycle. Returns list of dicts.
+async def get_industry_aggregates(eid: str) -> list[dict]:
+    """Lifetime industry breakdown for one candidate.
 
-    Each dict: {"catcode": str, "amount": float, "n_records": int}
+    Returns list[{industry_name: str, amount: float, n_records: int}].
+    FTM grouped-aggregate endpoints are lifetime-only — see module docstring.
     """
-    cache_key = f"ftm:aggs:{eid}:{cycle}"
+    cache_key = f"ftm:aggs:{eid}"
     cached = ai_cache.get(cache_key)
     if cached is not None:
         return cached  # type: ignore[return-value]
 
     if not FTM_API_KEY:
-        result = SAMPLE_FTM_AGGREGATES.get((eid, cycle), [])
+        result = SAMPLE_FTM_AGGREGATES.get(eid, [])
         ai_cache.set(cache_key, result, ttl_hours=_AGGS_TTL)
         return result
 
     try:
         async with httpx.AsyncClient() as client:
-            result = await _live_get_aggregates(client, eid, cycle)
+            result = await _live_get_aggregates(client, eid)
     except Exception as e:
-        print(f"[ftm]   aggregates failed for eid={eid} cycle={cycle}: {e!r}")
+        print(f"[ftm]   aggregates failed for eid={eid}: {e!r}")
         result = []
+
+    # Sample-data fallback if the live call returned nothing — matches the
+    # rest of the API wrappers' "always return something demoable" pattern.
+    if not result:
+        result = SAMPLE_FTM_AGGREGATES.get(eid, [])
 
     ai_cache.set(cache_key, result, ttl_hours=_AGGS_TTL)
     return result

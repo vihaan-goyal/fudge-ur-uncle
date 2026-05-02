@@ -45,6 +45,10 @@ INDUSTRY_CATEGORY_MAP = {
         "primary": ["crop_production", "livestock", "food_processing", "agribusiness"],
         "secondary": ["food_beverage", "tobacco"],
     },
+    "housing": {
+        "primary": ["real_estate", "construction"],
+        "secondary": ["commercial_banks", "lawyers_law_firms"],
+    },
 }
 
 
