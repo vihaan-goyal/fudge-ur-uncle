@@ -49,6 +49,22 @@ INDUSTRY_CATEGORY_MAP = {
         "primary": ["real_estate", "construction"],
         "secondary": ["commercial_banks", "lawyers_law_firms"],
     },
+    "education": {
+        "primary": ["education", "public_sector_unions"],
+        "secondary": ["lawyers_law_firms", "labor_unions"],
+    },
+    "immigration": {
+        "primary": ["agribusiness", "crop_production", "construction", "private_military"],
+        "secondary": ["food_processing", "computer_software", "lawyers_law_firms"],
+    },
+    "firearms": {
+        "primary": ["misc_manufacturing"],
+        "secondary": ["lawyers_law_firms"],
+    },
+    "elections": {
+        "primary": ["lawyers_law_firms"],
+        "secondary": ["labor_unions", "public_sector_unions"],
+    },
 }
 
 

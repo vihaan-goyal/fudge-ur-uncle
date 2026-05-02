@@ -118,23 +118,28 @@ async def ingest_state_votes(
         "stale_status_skipped": 0,
         "rows_inserted": 0,
         "rows_updated": 0,
+        "rows_purged": 0,
+        "alerts_purged": 0,
     }
 
     if not bills:
         return stats
 
+    keepers: list[str] = []
     for bill in bills:
         sched = _scheduled_date_for(bill, lead_days)
         if not sched:
             stats["stale_status_skipped"] += 1
             continue
-        category = categorize(bill.get("title") or "", bill.get("description") or "")
+        category = categorize(bill.get("title") or "")
         if not category:
             stats["uncategorized_skipped"] += 1
             continue
         if dry_run:
             print(f"[state-votes]   would write: {bill.get('number')} ({category}) -> {sched.isoformat()}")
             continue
+        bill_number = bill.get("number") or f"BILL-{bill.get('bill_id')}"
+        keepers.append(bill_number)
         with connect() as conn:
             inserted = _upsert_scheduled_vote(conn, state, bill, category, sched)
         if inserted:
@@ -142,6 +147,36 @@ async def ingest_state_votes(
             print(f"[state-votes]   + {bill.get('number')} ({category}, sched={sched.isoformat()}) {bill.get('title','')[:60]}")
         else:
             stats["rows_updated"] += 1
+
+    # Purge stale rows: bills that previously fell into a category but no longer
+    # do (re-categorization), and bills that have dropped off the masterlist
+    # (passed/failed). Without this, false-positive categorizations from older
+    # ingest passes — and bills that are no longer pending — would linger
+    # forever and keep generating alerts.
+    if not dry_run and keepers:
+        placeholders = ",".join("?" * len(keepers))
+        with connect() as conn:
+            stale_ids = [
+                r["id"] for r in conn.execute(
+                    f"""SELECT id FROM scheduled_votes
+                        WHERE jurisdiction = 'state'
+                          AND state_code = ?
+                          AND bill_number NOT IN ({placeholders})""",
+                    (state, *keepers),
+                ).fetchall()
+            ]
+            if stale_ids:
+                stale_placeholders = ",".join("?" * len(stale_ids))
+                cur = conn.execute(
+                    f"DELETE FROM alerts WHERE actor_type = 'state' AND vote_id IN ({stale_placeholders})",
+                    stale_ids,
+                )
+                stats["alerts_purged"] = cur.rowcount
+                cur = conn.execute(
+                    f"DELETE FROM scheduled_votes WHERE id IN ({stale_placeholders})",
+                    stale_ids,
+                )
+                stats["rows_purged"] = cur.rowcount
 
     print(f"[state-votes] Done. Stats: {stats}")
     return stats

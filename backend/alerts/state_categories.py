@@ -15,6 +15,14 @@ scoring formula's topic-match table works without translation.
 Order in CATEGORY_KEYWORDS matters: earlier entries win. Put the most
 specific patterns first ("prescription drug" before "drug") to keep
 matches tight.
+
+We match against bill *title only*, not description. Legiscan's `description`
+field is a long policy summary that produces too many incidental matches
+(e.g. "An Act Concerning The State Building Code" got tagged as `education`
+because the description happened to mention schools). Title text is short,
+intentional, and reflects the bill's actual topic. If a title is too generic
+to categorize, that's information — the bill is more likely procedural
+(land conveyances, claims commissioner resolutions) than substantive policy.
 """
 
 import re
@@ -26,7 +34,8 @@ CATEGORY_KEYWORDS = [
         r"\bclimate\b",
         r"\bgreenhouse gas",
         r"\bemissions?\b",
-        r"\brenewable energy\b",
+        r"\brenewable (energy|power)\b",
+        r"\bclean energy\b",
         r"\bzero[- ]carbon\b",
         r"\bsolar\b",
         r"\bwind energy\b",
@@ -38,6 +47,10 @@ CATEGORY_KEYWORDS = [
         r"\boil and gas\b",
         r"\bnatural gas\b",
         r"\belectric vehicle",
+        r"\baquacultur",
+        r"\bwildlife\b",
+        r"\bfisher(y|ies)\b",
+        r"\bextended producer responsibility\b",
     ]),
     ("healthcare", [
         r"\bprescription drug",
@@ -46,14 +59,20 @@ CATEGORY_KEYWORDS = [
         r"\bhealth insurance\b",
         r"\bhealthcare\b",
         r"\bhealth care\b",
+        r"\bhealth coverage\b",
+        r"\bhealth conditions?\b",
         r"\bmedicare\b",
         r"\bmedicaid\b",
         r"\bhospital",
         r"\bnursing home",
         r"\bmental health\b",
+        r"\bbehavioral health\b",
         r"\bopioid",
         r"\babortion\b",
         r"\breproductive health",
+        r"\bcontracepti",
+        r"\bhormone therapy\b",
+        r"\bassisted living\b",
         r"\bpaid family",
         r"\bmedical leave\b",
         r"\bpublic health\b",
@@ -72,6 +91,8 @@ CATEGORY_KEYWORDS = [
         r"\bunemployment\b",
         r"\bsmall business",
         r"\bbanking\b",
+        r"\binsurance statutes\b",
+        r"\binsurance department",
         r"\bfinancial regulation\b",
         r"\bconsumer protection\b",
     ]),
@@ -135,6 +156,73 @@ CATEGORY_KEYWORDS = [
         r"\beviction\b",
         r"\bfair housing\b",
         r"\bhomeless",
+        r"\blandlord",
+        r"\btenant",
+    ]),
+    ("education", [
+        r"\bk[- ]12\b",
+        r"\bhigher education\b",
+        r"\bcharter school",
+        r"\bpublic schools?\b",
+        r"\bschool district",
+        r"\bstudent loan",
+        r"\bstudent debt\b",
+        r"\bschool funding\b",
+        r"\bschool finance\b",
+        r"\bschool board",
+        r"\bcurriculum\b",
+        r"\btuition\b",
+        r"\bteacher",
+        r"\bschools?\b",
+        r"\bpupil",
+        r"\bearly childhood\b",
+        r"\bdual enrollment\b",
+        r"\beducation\b",
+        r"\buniversit",
+        r"\bcommunity college",
+    ]),
+    ("immigration", [
+        r"\bimmigration\b",
+        r"\bimmigrant",
+        r"\bundocumented\b",
+        r"\basylum\b",
+        r"\brefugee",
+        r"\bdeportation\b",
+        r"\bsanctuary (cit(y|ies)|states?|polic)",
+        r"\bnaturalization\b",
+        r"\bborder security\b",
+        r"\bice detain",
+    ]),
+    ("firearms", [
+        r"\bfirearm",
+        r"\bassault weapon",
+        r"\bghost gun",
+        r"\bsecond amendment\b",
+        r"\bconceal(ed)?[- ]carry\b",
+        r"\bopen[- ]carry\b",
+        r"\bammunition\b",
+        r"\bred[- ]flag\b",
+        r"\bextreme risk protection\b",
+        r"\bguns?\b",
+        r"\bhandgun",
+        r"\brifle\b",
+    ]),
+    ("elections", [
+        r"\babsentee ballot",
+        r"\bmail[- ]in vot",
+        r"\bearly voting\b",
+        r"\bredistricting\b",
+        r"\bgerrymander",
+        r"\bcampaign finance\b",
+        r"\bvoter id\b",
+        r"\bvoter registration\b",
+        r"\bpolling place",
+        r"\bballot\b",
+        r"\belectoral\b",
+        r"\bvoting rights\b",
+        r"\bvoter\b",
+        r"\bvoters\b",
+        r"\belections?\b",
     ]),
 ]
 
@@ -145,26 +233,20 @@ _COMPILED: list[tuple[str, list[re.Pattern]]] = [
 ]
 
 
-def categorize(title: str, description: str = "") -> str | None:
+def categorize(title: str) -> str | None:
     """
-    Return the first matching category for a bill title (and optional description),
-    or None if nothing matches. Match against title first, then description.
+    Return the first matching category for a bill title, or None if nothing
+    matches. Title-only — see module docstring for why we don't fall back to
+    the description field.
 
     None means "skip this bill" — without a category the topic-match signal T
     is undefined, so the bill can't contribute to alerts.
     """
-    if not title and not description:
+    if not title:
         return None
-    haystack_title = title.lower()
-    haystack_desc = description.lower()
-    # Title carries more weight — try it alone first.
+    haystack = title.lower()
     for cat, patterns in _COMPILED:
         for pat in patterns:
-            if pat.search(haystack_title):
+            if pat.search(haystack):
                 return cat
-    if haystack_desc:
-        for cat, patterns in _COMPILED:
-            for pat in patterns:
-                if pat.search(haystack_desc):
-                    return cat
     return None

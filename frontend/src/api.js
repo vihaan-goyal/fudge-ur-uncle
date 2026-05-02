@@ -306,4 +306,42 @@ export const SAMPLE = {
     { id: 3, text: "Sen. Murphy missed 3 votes this month - below his average attendance.", action: "View Record", urgent: false, time: "1 day ago" },
     { id: 4, text: "New campaign finance filing shows shift in donor composition.", action: "See Funding", urgent: false, time: "2 days ago" },
   ],
+
+  // Shape mirrors GET /api/alerts/by-actor/state/{people_id}, used when the
+  // backend is unreachable so StateRepAlertsScreen still renders something.
+  stateAlerts: [
+    {
+      id: 9001,
+      urgent: true,
+      headline: "$45,000 from Public Sector Unions PACs · education vote in 3 days",
+      body: "Public Sector Unions PACs (lifetime $45k) → SB00222 (education) on the floor.",
+      score: 0.86,
+      signals: { T: 1.0, V: 1.0, D: 0.74, R: 0.5, A: 0.5, N: 0.4 },
+      donation: { amount: 45000, industry: "public_sector_unions" },
+      vote: { bill_number: "SB00222", category: "education" },
+      time: "sample data",
+    },
+    {
+      id: 9002,
+      urgent: true,
+      headline: "$22,000 from Pharmaceuticals PACs · healthcare vote in 1 day",
+      body: "Pharmaceuticals & Health Products PACs (lifetime $22k) → SB00429 (healthcare).",
+      score: 0.82,
+      signals: { T: 1.0, V: 1.0, D: 0.61, R: 0.5, A: 0.5, N: 0.3 },
+      donation: { amount: 22000, industry: "pharmaceuticals" },
+      vote: { bill_number: "SB00429", category: "healthcare" },
+      time: "sample data",
+    },
+    {
+      id: 9003,
+      urgent: false,
+      headline: "$18,000 from Oil & Gas PACs · environment vote in 7 days",
+      body: "Oil & Gas PACs (lifetime $18k) → SB00148 (environment).",
+      score: 0.55,
+      signals: { T: 1.0, V: 0.7, D: 0.45, R: 0.5, A: 0.5, N: 0.2 },
+      donation: { amount: 18000, industry: "oil_gas" },
+      vote: { bill_number: "SB00148", category: "environment" },
+      time: "sample data",
+    },
+  ],
 };

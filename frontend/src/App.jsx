@@ -2284,12 +2284,13 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
       .catch((e) => {
         if (!cancelled) {
           setError(e.detail || e.message || "Failed to load alerts");
-          setAlerts([]);
+          setAlerts(SAMPLE.stateAlerts);
         }
       });
     return () => { cancelled = true; };
   }, [peopleId]);
 
+  const isReal = alerts && !error;
   const fmtMoney = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
   return (
@@ -2305,7 +2306,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
         {error && (
           <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>
-              Could not reach the alerts service
+              Showing sample alerts (backend offline)
             </div>
             <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>{error}</div>
           </div>
@@ -2367,6 +2368,8 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
                 score: {a.score.toFixed(2)} {a.signals?.T !== undefined && (
                   <span style={{ marginLeft: 8 }}>
                     T={a.signals.T.toFixed(2)} V={a.signals.V.toFixed(2)} D={a.signals.D.toFixed(2)} R={a.signals.R.toFixed(2)}
+                    {a.signals.A !== undefined && ` A=${a.signals.A.toFixed(2)}`}
+                    {a.signals.N !== undefined && ` N=${a.signals.N.toFixed(2)}`}
                   </span>
                 )}
               </div>
@@ -2374,7 +2377,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
           </div>
         ))}
 
-        {alerts && alerts.length > 0 && (
+        {isReal && alerts && alerts.length > 0 && (
           <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
             State alerts use FTM industry aggregates and Legiscan engrossed-bill statuses. Scores typically run lower than federal alerts because aggregate data carries less per-donation signal.
           </div>
