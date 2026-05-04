@@ -44,6 +44,21 @@ def _normalize_date(iso_date) -> str:
         return "TBD"
 
 
+def _clean_title(raw: str) -> str:
+    """Collapse whitespace and strip control chars from a meeting title.
+
+    Congress.gov sometimes hands back the full agenda blob in the title
+    field — embedded `\\r\\n`s and long runs of spaces between numbered
+    items. The frontend line-clamps the card display, but normalising here
+    keeps the detail screen readable too and avoids paying the noise cost
+    in caching/AI-summary keys.
+    """
+    import re
+    if not raw:
+        return "Committee Meeting"
+    return re.sub(r"\s+", " ", raw).strip() or "Committee Meeting"
+
+
 _BILL_TYPES = {
     "H.R.": "house-bill",
     "S.": "senate-bill",
@@ -123,7 +138,7 @@ def _normalize_detail(raw: dict, idx: int) -> dict:
 
     return {
         "id": idx + 1,
-        "title": meeting.get("title", "Committee Meeting"),
+        "title": _clean_title(meeting.get("title", "")),
         "date": _normalize_date(meeting.get("date") or meeting.get("meetingDate", "")),
         "time": meeting.get("time", "TBD"),
         "location": f"{building} {room}".strip() or "U.S. Capitol",

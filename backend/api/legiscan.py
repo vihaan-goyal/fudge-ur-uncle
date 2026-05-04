@@ -18,6 +18,7 @@ import httpx
 
 from config import LEGISCAN_API_KEY, LEGISCAN_BASE
 from api import ai_cache
+from alerts.state_categories import categorize as _categorize_title
 
 _TIMEOUT = 15.0
 
@@ -404,7 +405,8 @@ async def get_legislator_votes(people_id: int) -> list[dict]:
             "title": title,
             "date": date or rc.get("date", ""),
             "member_vote": my_vote.get("vote_text", ""),
-            "category": chamber or rc.get("chamber", ""),
+            "category": _categorize_title(title) or "",
+            "chamber": chamber or rc.get("chamber", ""),
         })
 
     results.sort(key=lambda r: r.get("date", ""), reverse=True)

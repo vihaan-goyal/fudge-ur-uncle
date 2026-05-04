@@ -7,16 +7,18 @@ started from backend/ or from the project root.
 """
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-# DB lives at backend/data/whoboughtmyrep.sqlite — same path as db.py uses
-_DB_PATH = Path(__file__).parent.parent / "data" / "whoboughtmyrep.sqlite"
+# DB lives at backend/data/whoboughtmyrep.sqlite — same path as db.py uses.
+# Honor FUU_DB_PATH so tests can point this at a tmp file.
+_DB_PATH = Path(os.environ.get("FUU_DB_PATH") or Path(__file__).parent.parent / "data" / "whoboughtmyrep.sqlite")
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -43,6 +45,10 @@ def _connect():
     conn.row_factory = sqlite3.Row
     try:
         yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -54,15 +60,29 @@ def _row_to_alert(row: sqlite3.Row) -> dict:
     except (TypeError, ValueError):
         signals = {}
 
-    # Compute a relative time string so the frontend doesn't have to
-    created = row["created_at"]
+    # Compute a relative time string. Prefer updated_at (last reconfirm) so
+    # alerts the pipeline keeps refreshing read as fresh; fall back to
+    # created_at for legacy rows where updated_at isn't populated yet.
+    ts_raw = None
+    try:
+        ts_raw = row["updated_at"]
+    except (IndexError, KeyError):
+        ts_raw = None
+    if not ts_raw:
+        ts_raw = row["created_at"]
+    created = ts_raw
     if isinstance(created, str):
         try:
             created = datetime.fromisoformat(created)
         except ValueError:
             created = None
     if isinstance(created, datetime):
-        delta = datetime.now() - created
+        # created_at is stored via SQL CURRENT_TIMESTAMP (UTC, naive). Compare
+        # against utcnow() so users outside UTC don't see "19 hours ago" on a
+        # row that was written 30 seconds back. Strip the tz on `now` so the
+        # subtraction works against the naive parsed timestamp.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        delta = now - created
         if delta.days >= 1:
             time_str = f"{delta.days} day{'s' if delta.days != 1 else ''} ago"
         elif delta.seconds >= 3600:
@@ -136,7 +156,7 @@ async def list_alerts(
 
     sql = f"""
         SELECT a.id, a.actor_type, a.actor_id, a.headline, a.body, a.score, a.urgent,
-               a.signals_json, a.created_at,
+               a.signals_json, a.created_at, a.updated_at,
                d.pac_name, d.industry, d.amount, d.donation_date,
                v.bill_number, v.title, v.category, v.scheduled_date
         FROM alerts a
@@ -191,7 +211,6 @@ async def dismiss_alert(alert_id: int):
         cursor = conn.execute(
             "UPDATE alerts SET dismissed = 1 WHERE id = ?", (alert_id,)
         )
-        conn.commit()
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Alert not found")
     return {"ok": True, "id": alert_id}

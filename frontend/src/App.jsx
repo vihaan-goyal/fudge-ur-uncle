@@ -1480,8 +1480,8 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
       <div style={s.header}>
-        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Events Near You</h1>
-        <p style={s.headerSub}>{userState || "CT"} · Federal Committee Hearings</p>
+        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Federal Committee Hearings</h1>
+        <p style={s.headerSub}>U.S. Congress · upcoming meetings</p>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
         {offline && (
@@ -1506,8 +1506,13 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
                 <div style={{ fontSize: 14, fontWeight: 800, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{(ev.date?.split(" ")?.[1] ?? "").replace(",", "")}</div>
                 <div style={{ fontSize: 9, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{ev.date?.split(" ")?.[0] ?? ""}</div>
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{ev.title}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontWeight: 600, fontSize: 13, marginBottom: 2,
+                  display: "-webkit-box", WebkitBoxOrient: "vertical",
+                  WebkitLineClamp: 3, overflow: "hidden", lineHeight: 1.35,
+                  wordBreak: "break-word",
+                }}>{ev.title}</div>
                 <div style={{ fontSize: 11, color: colors.textMuted }}>{ev.time} · {ev.location}</div>
               </div>
             </div>
@@ -1560,7 +1565,7 @@ const LearnToVoteScreen = ({ onNav, userState }) => (
 );
 
 // 16. ALERTS - Wired to backend
-const AlertsScreen = ({ onNav }) => {
+const AlertsScreen = ({ onNav, onSelectPolitician }) => {
   const [alerts, setAlerts] = useState(null);
   const [error, setError] = useState(null);
   const [urgentOnly, setUrgentOnly] = useState(false);
@@ -1637,7 +1642,7 @@ const AlertsScreen = ({ onNav }) => {
 
         {alerts && alerts.map((a) => {
           // Real alerts have richer shape than SAMPLE.alerts
-          const isUrgent = a.urgent !== undefined ? a.urgent : a.urgent;
+          const isUrgent = a.urgent !== undefined ? a.urgent : (a.score ?? 0) > 0.6;
           const headline = a.headline || a.text;
           const time = a.time || "recently";
           return (
@@ -1672,12 +1677,10 @@ const AlertsScreen = ({ onNav }) => {
                   )}
                 </div>
               )}
-              {a.bioguide_id && (
+              {a.bioguide_id && onSelectPolitician && (
                 <button
                   style={{ ...s.btn("outline"), padding: "6px 10px", fontSize: 11, marginTop: 10, width: "auto" }}
-                  onClick={() => {
-                    onNav(SCREENS.POLITICIAN_PROFILE);
-                  }}
+                  onClick={() => onSelectPolitician(a.bioguide_id)}
                 >
                   View Rep
                 </button>
@@ -2416,8 +2419,14 @@ export default function App() {
       .then((res) => {
         setCurrentUser(res.user);
         if (res.user.state) setUserState(res.user.state);
-        if (res.user.issues && res.user.issues.length > 0) setUserIssues(res.user.issues);
-        setCurrentScreen(SCREENS.DASHBOARD);
+        // Always sync issues from server, even if the server list is empty —
+        // otherwise a user who cleared their issues is stuck with the local
+        // default forever.
+        setUserIssues(res.user.issues || []);
+        // Only redirect if the user hasn't already navigated past splash.
+        // The me() call is async; without this guard a user who taps a nav
+        // pill before it resolves gets yanked back to Dashboard.
+        setCurrentScreen((prev) => prev === SCREENS.SPLASH ? SCREENS.DASHBOARD : prev);
       })
       .catch((e) => {
         if (e.status === 401) auth.clear();
@@ -2512,7 +2521,7 @@ export default function App() {
       case SCREENS.EVENTS: return <EventsScreen {...common} userState={userState} onSelectEvent={selectEvent} />;
       case SCREENS.EVENT_DETAIL: return <EventDetailScreen {...common} event={selectedEvent} />;
       case SCREENS.LEARN_TO_VOTE: return <LearnToVoteScreen {...common} userState={userState} />;
-      case SCREENS.ALERTS: return <AlertsScreen {...common} />;
+      case SCREENS.ALERTS: return <AlertsScreen {...common} onSelectPolitician={selectPolitician} />;
       case SCREENS.STATE_REPS: return <StateRepsScreen {...common} userState={userState} onSelectStateRep={selectStateRep} />;
       case SCREENS.STATE_REP_PROFILE: return <StateRepProfileScreen {...common} peopleId={selectedStatePeopleId} onSetStateRepData={setStateRepData} />;
       case SCREENS.STATE_REP_VOTING: return <StateRepVotingScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;

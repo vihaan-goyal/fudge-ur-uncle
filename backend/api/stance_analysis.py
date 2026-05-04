@@ -63,7 +63,8 @@ async def get_stance_analysis(
         '  "evidence": cite 1-2 specific bills with numbers from the data above\n'
         '  "score": one of CONSISTENT (votes align with clear stance), INCONSISTENT (votes contradict expected stance), '
         "MIXED (votes go both ways), or PENDING (only 1 data point)\n\n"
-        "Respond ONLY with a valid JSON array. No explanation, no markdown, no preamble."
+        'Respond ONLY with a JSON object of the form {"stances": [...]} where the array '
+        "contains the 4-6 policy entries. No explanation, no markdown, no preamble."
     )
 
     try:
@@ -76,9 +77,10 @@ async def get_stance_analysis(
         )
         raw = response.choices[0].message.content.strip()
         parsed = json.loads(raw)
-        # GPT may wrap it in {"stances": [...]} or return array directly
-        stances = parsed if isinstance(parsed, list) else parsed.get("stances") or next(iter(parsed.values()), [])
+        # response_format=json_object guarantees a dict, never a bare array.
+        stances = parsed.get("stances") if isinstance(parsed, dict) else None
         if not isinstance(stances, list) or not stances:
+            print(f"[stance_analysis] Unexpected shape for {cache_key}: keys={list(parsed)[:5] if isinstance(parsed, dict) else type(parsed).__name__}")
             return None
         ai_cache.set(cache_key, stances)
         print(f"[stance_analysis] Generated {len(stances)} stances for {cache_key}")

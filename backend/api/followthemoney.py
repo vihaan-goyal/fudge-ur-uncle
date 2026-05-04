@@ -50,9 +50,12 @@ are summary stubs whose `request` field is the URL-fragment for follow-up.
 
 2. **State filter for candidate enumeration is undocumented.** None of
    `s-y-st`, `s`, `c-r-s`, `c-t-s`, `c-r-osj` honor a state filter on the
-   candidates dataset. The eid-lookup path therefore can't reliably
-   enumerate "all CT state legislators" — for now it falls back to sample
-   data when a live match isn't found. See _live_find_eid TODO below.
+   candidates dataset, so live enumeration of "all CT state legislators"
+   isn't reliable. Workaround: a curated CSV directory at
+   `backend/data/ftm_eids.csv` (loaded by `api/ftm_directory.py`) maps
+   (state, chamber, name) -> eid offline. `find_candidate_eid` checks
+   that directory before the live API; SAMPLE_FTM_EIDS remains as the
+   final no-key fallback. See _live_find_eid TODO below.
 
 3. **Industry strings are FTM/CRP names, not Catcodes.** The `gro=d-cci`
    grouping returns `General_Industry` strings (e.g. "Oil & Gas"). The
@@ -68,6 +71,7 @@ import httpx
 
 from config import FTM_API_KEY  # type: ignore
 from api import ai_cache
+from api import ftm_directory
 
 _TIMEOUT = 20.0
 _FTM_BASE = "https://api.followthemoney.org/"
@@ -115,13 +119,17 @@ SAMPLE_FTM_AGGREGATES = {
 
 # ---- Low-level HTTP -------------------------------------------------
 
+class FTMUpstreamError(RuntimeError):
+    """FTM responded but the response wasn't usable (quota error, etc.)."""
+
+
 async def _ftm_get(client: httpx.AsyncClient, url: str, params: dict) -> dict:
     """GET against FTM with the API key attached. Retries 429 with backoff.
 
-    Note FTM's free tier returns HTTP 200 with {"error": "..."} when the
-    monthly quota is exhausted ("This account has reached its free API
-    call limit..."), instead of a 4xx. We surface that message and let
-    the caller fall through to sample data.
+    FTM's free tier returns HTTP 200 with {"error": "..."} when the monthly
+    quota is exhausted, instead of a 4xx. We raise FTMUpstreamError on that
+    so callers can distinguish "real empty" from "upstream wedged" — and
+    avoid caching the empty response under the live cache key.
     """
     if not FTM_API_KEY:
         raise RuntimeError("FTM_API_KEY not set")
@@ -135,14 +143,13 @@ async def _ftm_get(client: httpx.AsyncClient, url: str, params: dict) -> dict:
             resp.raise_for_status()
             data = resp.json()
             if isinstance(data, dict) and data.get("error"):
-                print(f"[ftm]   API error: {data['error']}")
-                return {}
+                raise FTMUpstreamError(str(data["error"]))
             return data
         except (httpx.TimeoutException, httpx.HTTPStatusError):
             if attempt == 2:
                 raise
             await asyncio.sleep(1)
-    return {}
+    raise FTMUpstreamError("retries exhausted")
 
 
 # ---- EID lookup -----------------------------------------------------
@@ -187,8 +194,14 @@ async def find_candidate_eid(
 ) -> Optional[tuple[str, float]]:
     """Return (FTM eid, match confidence) for a state legislator, or None if no good match.
 
-    Confidence is the SequenceMatcher ratio between the requested name and the
-    name on the matched FTM record; below `_MIN_MATCH_CONFIDENCE` we discard
+    Resolution order:
+      1. ai_cache hit (empty list = cached "no match")
+      2. Offline directory CSV (backend/data/ftm_eids.csv) — curated, key-free
+      3. Live FTM candidates search (currently a stub returning None)
+      4. SAMPLE_FTM_EIDS — final no-key demo fallback
+
+    Confidence is the SequenceMatcher ratio between the requested name and
+    the name on the matched record; below `_MIN_MATCH_CONFIDENCE` we discard
     rather than risk attributing donations to the wrong person.
     """
     cache_key = f"ftm:eid:{state.upper()}:{chamber.lower()}:{name.lower().strip()}"
@@ -197,25 +210,28 @@ async def find_candidate_eid(
         # Empty list = cached "no match"; non-empty list = cached [eid, confidence].
         return tuple(cached) if cached else None  # type: ignore[return-value]
 
-    if not FTM_API_KEY:
-        sample = _lookup_sample_eid(name, state)
-        ai_cache.set(cache_key, list(sample) if sample else [], ttl_hours=_EID_TTL)
-        return sample
+    # Try the offline directory first — works without a key, and a curated
+    # match is as authoritative as a live lookup.
+    directory_match = ftm_directory.lookup(name, state, chamber)
+    if directory_match:
+        ai_cache.set(cache_key, list(directory_match), ttl_hours=_EID_TTL)
+        return directory_match
 
-    try:
-        async with httpx.AsyncClient() as client:
-            result = await _live_find_eid(client, name, state, chamber, party)
-    except Exception as e:
-        print(f"[ftm]   eid lookup failed for {name} ({state}/{chamber}): {e!r}")
-        result = None
+    if FTM_API_KEY:
+        try:
+            async with httpx.AsyncClient() as client:
+                result = await _live_find_eid(client, name, state, chamber, party)
+        except Exception as e:
+            print(f"[ftm]   eid lookup failed for {name} ({state}/{chamber}): {e!r}")
+            result = None
+        if result:
+            ai_cache.set(cache_key, list(result), ttl_hours=_EID_TTL)
+            return result
 
-    # Live eid lookup is currently a stub — fall back to sample data so the
-    # demo path keeps working even with a real key configured.
-    if result is None:
-        result = _lookup_sample_eid(name, state)
-
-    ai_cache.set(cache_key, list(result) if result else [], ttl_hours=_EID_TTL)
-    return result
+    # Final fallback: hardcoded sample data so the demo path stays alive.
+    sample = _lookup_sample_eid(name, state)
+    ai_cache.set(cache_key, list(sample) if sample else [], ttl_hours=_EID_TTL)
+    return sample
 
 
 # ---- Industry aggregates --------------------------------------------
@@ -300,17 +316,21 @@ async def get_industry_aggregates(eid: str) -> list[dict]:
         ai_cache.set(cache_key, result, ttl_hours=_AGGS_TTL)
         return result
 
+    live_failed = False
     try:
         async with httpx.AsyncClient() as client:
             result = await _live_get_aggregates(client, eid)
     except Exception as e:
         print(f"[ftm]   aggregates failed for eid={eid}: {e!r}")
         result = []
+        live_failed = True
 
-    # Sample-data fallback if the live call returned nothing — matches the
-    # rest of the API wrappers' "always return something demoable" pattern.
-    if not result:
-        result = SAMPLE_FTM_AGGREGATES.get(eid, [])
+    # Don't cache (or sample-pad) a transient live failure under the same key
+    # as a real result — that pinned demo numbers for 24h after every hiccup,
+    # masking the outage from the next caller. Only persist a successful
+    # response; let the next attempt re-hit the wire.
+    if live_failed:
+        return SAMPLE_FTM_AGGREGATES.get(eid, [])
 
     ai_cache.set(cache_key, result, ttl_hours=_AGGS_TTL)
     return result

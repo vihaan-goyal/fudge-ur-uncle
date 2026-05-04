@@ -52,6 +52,13 @@ async function apiRequest(path, { method = "GET", body, timeout = 45000 } = {}) 
         const j = await res.json();
         if (j && j.detail) detail = j.detail;
       } catch { /* ignore */ }
+      // If the server rejected our token, drop it so the UI can re-prompt
+      // for login instead of looping forever on stale credentials. We only
+      // clear when the request was authenticated — an unauthenticated 401
+      // (signup-conflict edge case) shouldn't blow away an unrelated token.
+      if (res.status === 401 && token) {
+        auth.clear();
+      }
       const err = new Error(`API ${res.status}: ${detail}`);
       err.status = res.status;
       err.detail = detail;
@@ -78,8 +85,8 @@ export const api = {
 
   me: () => apiRequest("/api/auth/me"),
 
-  updateMe: ({ name, state }) =>
-    apiRequest("/api/auth/me", { method: "PATCH", body: { name, state } }),
+  updateMe: ({ name, state, issues }) =>
+    apiRequest("/api/auth/me", { method: "PATCH", body: { name, state, issues } }),
 
   deleteAccount: () => apiRequest("/api/auth/me", { method: "DELETE" }),
 

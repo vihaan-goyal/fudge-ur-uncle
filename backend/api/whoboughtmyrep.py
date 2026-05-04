@@ -55,8 +55,9 @@ SAMPLE_REPS = [
         "chamber": "senate",
         "total_raised": 27450000,
         "total_funding": 29100000,
-        "pac_percent": 15.3,
-        "small_donor_percent": 27.8,
+        "pac_total": 4200000,
+        "small_donor_total": 7631100,
+        "individual_total": 18900000,
         "ie_support_total": 1650000,
     },
 ]

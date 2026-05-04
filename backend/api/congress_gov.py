@@ -341,4 +341,4 @@ async def get_sponsored_bills(bioguide_id: str, limit: int = 10) -> list[dict]:
         return bills
     except Exception as e:
         print(f"[congress] Error fetching sponsored bills: {e}")
-        return [];
+        return []

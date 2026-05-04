@@ -15,7 +15,9 @@ async def get_event_summary(
     if not OPENAI_API_KEY:
         return None
 
-    cache_key = title
+    # Generic titles ("Business Meeting", "Markup") collide across committees;
+    # include the disambiguating fields so each event gets its own summary.
+    cache_key = "|".join([title, chamber, meeting_type, committee, bills])
     if cache_key in _cache:
         return _cache[cache_key]
 

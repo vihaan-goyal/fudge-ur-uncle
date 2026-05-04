@@ -10,9 +10,14 @@ Table is created lazily on first use, so this module works even if the
 user hasn't run `python -m backend.db` yet.
 """
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from db import connect
+
+
+def _utcnow() -> datetime:
+    """Naive UTC datetime — datetime.utcnow() is deprecated as of Python 3.12."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 _table_ready = False
 
@@ -45,7 +50,7 @@ def get(key: str):
             ).fetchone()
         if not row:
             return None
-        if row["expires_at"] < datetime.utcnow():
+        if row["expires_at"] < _utcnow():
             return None
         return json.loads(row["value_json"])
     except Exception as e:
@@ -57,7 +62,7 @@ def set(key: str, value, ttl_hours: int = 168) -> None:
     """Store `value` (JSON-serializable) under `key` with a TTL. Default 7 days."""
     try:
         _ensure_table()
-        expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+        expires_at = _utcnow() + timedelta(hours=ttl_hours)
         with connect() as conn:
             conn.execute(
                 """

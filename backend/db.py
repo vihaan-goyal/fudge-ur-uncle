@@ -9,13 +9,15 @@ Tables:
 - industry_baselines: per-rep/per-industry historical stats for anomaly detection
 """
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "data" / "whoboughtmyrep.sqlite"
-DB_PATH.parent.mkdir(exist_ok=True)
+# Tests set FUU_DB_PATH to a tmp file so they don't clobber dev data.
+DB_PATH = Path(os.environ.get("FUU_DB_PATH") or Path(__file__).parent / "data" / "whoboughtmyrep.sqlite")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 # Python 3.12+: register explicit adapters/converters instead of relying on defaults
@@ -83,6 +85,10 @@ CREATE TABLE IF NOT EXISTS alerts (
     body TEXT NOT NULL,
     signals_json TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Bumped every time the pipeline reconfirms the alert (insert OR upsert).
+    -- Used for the "X mins ago" string so re-run alerts feel fresh; created_at
+    -- still records first appearance.
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     dismissed BOOLEAN DEFAULT 0,
     FOREIGN KEY (donation_id) REFERENCES donations(id),
     FOREIGN KEY (vote_id) REFERENCES scheduled_votes(id)
@@ -216,6 +222,16 @@ def _migrate() -> None:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_unique "
                 "ON alerts(actor_type, actor_id, donation_id, vote_id)"
             )
+
+        # alerts.updated_at — added so the relative-time string reflects last
+        # reconfirm time, not first-appearance time. Backfill from created_at
+        # so legacy rows render correctly until the next pipeline run.
+        # SQLite forbids non-constant defaults in ALTER TABLE ADD COLUMN, so
+        # the column is added without a default and backfilled in a second step.
+        a_cols = _table_columns(conn, "alerts")
+        if a_cols and "updated_at" not in a_cols:
+            conn.execute("ALTER TABLE alerts ADD COLUMN updated_at TIMESTAMP")
+            conn.execute("UPDATE alerts SET updated_at = created_at WHERE updated_at IS NULL")
 
         # industry_baselines: PK changes, so table swap (rename column alone won't shift the PK)
         b_cols = _table_columns(conn, "industry_baselines")

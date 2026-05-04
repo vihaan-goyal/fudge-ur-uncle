@@ -9,7 +9,7 @@ React + Vite frontend that connects to the Fudge Ur Uncle backend API.
 npm install
 
 # 2. Start the backend first (in a separate terminal)
-cd ../fudge-ur-uncle
+cd ../backend
 python server.py
 
 # 3. Start the frontend
@@ -25,18 +25,22 @@ Vite's dev server proxies `/api/*` requests to `http://localhost:8000`, so you d
 
 | Screen | Endpoint | Status |
 |--------|----------|--------|
-| Dashboard | `GET /api/reps/by-state/{state}` | Live |
-| Search | `GET /api/reps/search?q={q}` | Live (debounced) |
+| Auth (signup/login/logout/settings) | `POST/GET/PATCH/DELETE /api/auth/*` | Live |
+| Dashboard | `GET /api/reps/by-state/{state}` + per-rep `/funding-lite` | Live (lazy-loaded funding) |
+| Unified Search | `GET /api/search/unified?q={q}&state={st}` | Live (federal + state) |
 | Politician Profile | `GET /api/profile/{bioguide_id}` | Live |
 | Funding | Uses profile data | Live |
 | Voting History | Uses profile data | Live |
 | Timeline | Uses profile data | Live |
+| Stance Analysis | `GET /api/profile/{bioguide_id}/stances` | Live (requires `OPENAI_API_KEY`) |
+| Promise Scoring | `GET /api/profile/{bioguide_id}/promises` | Live (requires `OPENAI_API_KEY`) |
 | Take Action | Uses profile contact data | Live |
 | Contact Reps | `GET /api/reps/by-state/{state}` | Live |
-| Promise Scoring | — | Placeholder (backend TODO) |
-| Events | — | Sample data (no API yet) |
-| Alerts | — | Sample data (no API yet) |
-| Settings | `GET /` (health check) | Live |
+| Events | `GET /api/events` + `/article` + `/summary` | Live (Congress.gov + NewsAPI/Guardian + OpenAI) |
+| Alerts | `GET /api/alerts/by-actor/{actor_type}/{actor_id}` | Live (when pipeline has run) |
+| State Legislators | `GET /api/state-reps/by-state/{state}` | Live (Legiscan, with sample fallback) |
+| State Rep Profile | `GET /api/state-reps/{people_id}` (+ `/votes`, `/stances`, `/promises`) | Live |
+| Settings | `PATCH /api/auth/me` | Live |
 
 ## Graceful Fallback
 
@@ -65,5 +69,5 @@ fudge-ur-uncle-frontend/
 └── src/
     ├── main.jsx         # Entry point
     ├── api.js           # API client + sample fallback data
-    └── App.jsx          # All 17 screens + routing
+    └── App.jsx          # All 23 screens + routing (single file, intentional)
 ```

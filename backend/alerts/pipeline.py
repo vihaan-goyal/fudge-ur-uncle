@@ -184,7 +184,8 @@ def _upsert_alert(
     if existing:
         conn.execute(
             """UPDATE alerts SET score = ?, urgent = ?, headline = ?,
-                                  body = ?, signals_json = ?
+                                  body = ?, signals_json = ?,
+                                  updated_at = CURRENT_TIMESTAMP
                WHERE id = ?""",
             (score, urgent, headline, body, signals_json, existing["id"]),
         )
@@ -193,8 +194,8 @@ def _upsert_alert(
     conn.execute(
         """INSERT INTO alerts
            (actor_type, actor_id, donation_id, vote_id, score, urgent,
-            headline, body, signals_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            headline, body, signals_json, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
         (actor_type, actor_id, donation_id, vote_id, score, urgent,
          headline, body, signals_json),
     )
@@ -203,21 +204,95 @@ def _upsert_alert(
 
 # ---------- Main pipeline ----------
 
-def _run_for_jurisdiction(
-    conn, actor_type: str, jurisdiction: str, stats: dict
-) -> None:
-    """Score (donation x vote) pairs for one side of the world (federal or state).
+def _state_for_actor_map(conn) -> dict[str, str]:
+    """Build a `people_id -> state-code` map from cached Legiscan rosters.
 
-    Federal donations are paired only with federal votes; state with state.
-    The signal-scoring formula itself is identity-agnostic, but we don't
-    want a federal rep's donations matched against a state bill or vice versa.
+    Reads ai_cache rows keyed `legiscan:people:{STATE}` (per-state roster) and
+    `legiscan:profile:{people_id}` (individual profile) to learn which state
+    each state actor belongs to. Falls back to SAMPLE_STATE_LEGISLATORS so the
+    no-key dev path still groups donations correctly.
+
+    Without this map a state actor's donations get paired with every state's
+    bills (CT senator vs. NJ housing bill).
     """
-    donations = _fetch_recent_donations(conn, config.DONATION_LOOKBACK_DAYS, actor_type=actor_type)
-    votes = _fetch_upcoming_votes(conn, config.VOTE_LOOKAHEAD_DAYS, jurisdiction=jurisdiction)
-    stats["donations_considered"] += len(donations)
-    stats["votes_considered"] += len(votes)
-    print(f"[pipeline] {actor_type}: {len(donations)} donations x {len(votes)} votes")
+    out: dict[str, str] = {}
 
+    # Two import paths: `backend.api.legiscan` works when run via
+    # `python -m backend.alerts.pipeline` (project root); `api.legiscan` works
+    # when backend/ is on sys.path (e.g. `python server.py` from backend/).
+    sample_roster = None
+    for mod_path in ("backend.api.legiscan", "api.legiscan"):
+        try:
+            mod = __import__(mod_path, fromlist=["SAMPLE_STATE_LEGISLATORS"])
+            sample_roster = getattr(mod, "SAMPLE_STATE_LEGISLATORS", None)
+            if sample_roster is not None:
+                break
+        except Exception:
+            continue
+    if sample_roster:
+        for state, roster in sample_roster.items():
+            for r in roster:
+                pid = r.get("people_id")
+                if pid is not None:
+                    out[str(pid)] = state.upper()
+
+    try:
+        rows = conn.execute(
+            """SELECT value_json FROM ai_cache
+               WHERE cache_key LIKE 'legiscan:people:%'
+                 AND expires_at > CURRENT_TIMESTAMP"""
+        ).fetchall()
+        for row in rows:
+            try:
+                roster = json.loads(row["value_json"])
+            except Exception:
+                continue
+            if not isinstance(roster, list):
+                continue
+            for r in roster:
+                pid = r.get("people_id")
+                state = r.get("state")
+                if pid is not None and state:
+                    out[str(pid)] = state.upper()
+    except Exception as e:
+        print(f"[pipeline] roster cache scan failed ({e})")
+
+    try:
+        rows = conn.execute(
+            """SELECT value_json FROM ai_cache
+               WHERE cache_key LIKE 'legiscan:profile:%'
+                 AND expires_at > CURRENT_TIMESTAMP"""
+        ).fetchall()
+        for row in rows:
+            try:
+                profile = json.loads(row["value_json"])
+            except Exception:
+                continue
+            if not isinstance(profile, dict):
+                continue
+            pid = profile.get("people_id")
+            state = profile.get("state")
+            if pid is not None and state:
+                out.setdefault(str(pid), state.upper())
+    except Exception as e:
+        print(f"[pipeline] profile cache scan failed ({e})")
+
+    return out
+
+
+def _score_pairs(
+    conn,
+    donations: list,
+    votes: list,
+    actor_type: str,
+    stats: dict,
+    seen_pairs: set[tuple[int, int]],
+) -> None:
+    """Score every donation x vote pair in this group and write qualifying alerts.
+
+    `seen_pairs` is mutated to record every (donation_id, vote_id) that was
+    upserted; the caller uses it to sweep stale alert rows after the run.
+    """
     if not donations or not votes:
         return
 
@@ -225,6 +300,15 @@ def _run_for_jurisdiction(
         (v.bill_number, v.category): _count_news_mentions(conn, v.bill_number, v.category)
         for _, v in votes
     }
+
+    # State-side calibration: FTM aggregates are lifetime stamps with a
+    # today date, and state actors lack baselines almost universally. The
+    # honest R/A values for these are flat-proxy and zero respectively;
+    # without this dampening, every state alert lands above the urgent
+    # threshold purely because R=1.0 and A=0.5. Federal scoring is unchanged.
+    is_state = actor_type == "state"
+    proxy_r = config.PROXY_DONATION_R if is_state else None
+    no_baseline_a = config.NO_BASELINE_A_HONEST if is_state else None
 
     for donation_id, donation, a_type, a_id in donations:
         baseline = _fetch_baseline(conn, a_type, a_id, donation.industry)
@@ -235,6 +319,8 @@ def _run_for_jurisdiction(
             signals = score_alert(
                 donation=donation, vote=vote, baseline=baseline,
                 news_article_count=news_count,
+                proxy_donation_r=proxy_r,
+                no_baseline_a=no_baseline_a,
             )
             if not should_alert(signals):
                 continue
@@ -245,12 +331,92 @@ def _run_for_jurisdiction(
                 conn, a_type, a_id, donation_id, vote_id,
                 signals.score, signals.urgent, headline, body, signals_json,
             )
+            seen_pairs.add((donation_id, vote_id))
             if was_new:
                 stats["alerts_written_new"] += 1
             else:
                 stats["alerts_updated"] += 1
             if signals.urgent:
                 stats["alerts_urgent"] += 1
+
+
+def _sweep_stale_alerts(
+    conn, actor_type: str, seen_pairs: set[tuple[int, int]], stats: dict
+) -> None:
+    """Delete non-dismissed alerts whose (donation_id, vote_id) wasn't refreshed this run.
+
+    Three reasons a previously-written alert can go stale:
+      1. The donation aged out of the lookback window.
+      2. The scheduled vote already happened (or moved out of lookahead).
+      3. The recomputed score no longer clears `should_alert` — usually
+         because scoring config changed (e.g. state-side calibration).
+
+    Dismissed alerts are kept so user-suppressed history doesn't resurface
+    if the same pair becomes alert-worthy again.
+    """
+    rows = conn.execute(
+        "SELECT id, donation_id, vote_id FROM alerts "
+        "WHERE actor_type = ? AND dismissed = 0",
+        (actor_type,),
+    ).fetchall()
+    stale = [r["id"] for r in rows if (r["donation_id"], r["vote_id"]) not in seen_pairs]
+    if not stale:
+        return
+    # Chunk the IN-list to stay under SQLite's parameter limit (default 999).
+    for i in range(0, len(stale), 500):
+        chunk = stale[i:i + 500]
+        placeholders = ",".join("?" * len(chunk))
+        conn.execute(f"DELETE FROM alerts WHERE id IN ({placeholders})", chunk)
+    stats["alerts_swept_stale"] += len(stale)
+    print(f"[pipeline] {actor_type}: swept {len(stale)} stale alert rows")
+
+
+def _run_for_jurisdiction(
+    conn, actor_type: str, jurisdiction: str, stats: dict
+) -> None:
+    """Score (donation x vote) pairs for one side of the world (federal or state).
+
+    Federal donations are paired only with federal votes; state with state.
+    For state, donations are further grouped by the actor's state so a CT
+    senator's donations don't get paired with NJ bills. The signal-scoring
+    formula itself is identity-agnostic — this scoping happens at the
+    candidate-pair level.
+    """
+    donations = _fetch_recent_donations(conn, config.DONATION_LOOKBACK_DAYS, actor_type=actor_type)
+    seen_pairs: set[tuple[int, int]] = set()
+
+    if actor_type == "state":
+        state_map = _state_for_actor_map(conn)
+        groups: dict[str, list] = {}
+        unmapped = 0
+        for tup in donations:
+            actor_id = tup[3]
+            state = state_map.get(str(actor_id))
+            if not state:
+                unmapped += 1
+                continue
+            groups.setdefault(state, []).append(tup)
+        if unmapped:
+            print(f"[pipeline] state: {unmapped} donations skipped (no state mapping in cache)")
+
+        for state, state_donations in groups.items():
+            votes = _fetch_upcoming_votes(
+                conn, config.VOTE_LOOKAHEAD_DAYS,
+                jurisdiction=jurisdiction, state_code=state,
+            )
+            stats["donations_considered"] += len(state_donations)
+            stats["votes_considered"] += len(votes)
+            print(f"[pipeline] state {state}: {len(state_donations)} donations x {len(votes)} votes")
+            _score_pairs(conn, state_donations, votes, actor_type, stats, seen_pairs)
+        _sweep_stale_alerts(conn, actor_type, seen_pairs, stats)
+        return
+
+    votes = _fetch_upcoming_votes(conn, config.VOTE_LOOKAHEAD_DAYS, jurisdiction=jurisdiction)
+    stats["donations_considered"] += len(donations)
+    stats["votes_considered"] += len(votes)
+    print(f"[pipeline] {actor_type}: {len(donations)} donations x {len(votes)} votes")
+    _score_pairs(conn, donations, votes, actor_type, stats, seen_pairs)
+    _sweep_stale_alerts(conn, actor_type, seen_pairs, stats)
 
 
 def run_pipeline() -> dict:
@@ -271,6 +437,7 @@ def run_pipeline() -> dict:
         "alerts_written_new": 0,
         "alerts_updated": 0,
         "alerts_urgent": 0,
+        "alerts_swept_stale": 0,
         "baselines_computed": 0,
     }
 

@@ -41,6 +41,14 @@ ANOMALY_Z_CAP = 3.0  # clip z-scores at 3 sigma
 ALERT_THRESHOLD = 0.3
 URGENT_THRESHOLD = 0.6
 
+# Default A when no baseline is available. 0.5 = "unknown, neither flagged
+# nor dismissed" — the historically-reasonable midpoint for federal data
+# where missing baselines are rare. State actors typically lack baselines
+# entirely, so the pipeline overrides this with NO_BASELINE_A_HONEST=0.0
+# (see backend/alerts/config.py) to avoid systematically inflating state
+# scores by 0.1 (= GAMMA * 0.5).
+NO_BASELINE_A_DEFAULT = 0.5
+
 
 # ---------- Input data shapes ----------
 
@@ -117,15 +125,21 @@ def compute_R(donation_date: date, today: Optional[date] = None) -> float:
     return math.exp(-days_since / TAU_DONATION)
 
 
-def compute_A(amount: float, baseline: Optional[Baseline]) -> float:
+def compute_A(
+    amount: float,
+    baseline: Optional[Baseline],
+    no_baseline_default: float = NO_BASELINE_A_DEFAULT,
+) -> float:
     """
     Anomaly factor: z-score vs. rep's historical donations from this industry.
 
-    Returns 0.5 if no baseline (unknown, not flagged but not dismissed).
+    Returns `no_baseline_default` when there's no usable baseline (default
+    0.5 = "unknown, not flagged but not dismissed"; state actors override
+    to 0.0 because their baselines are systematically empty).
     Otherwise returns clip(z, 0, ANOMALY_Z_CAP) / ANOMALY_Z_CAP.
     """
     if baseline is None or baseline.n_samples < 3 or baseline.stddev_amount <= 0:
-        return 0.5
+        return no_baseline_default
     z = (amount - baseline.mean_amount) / baseline.stddev_amount
     z_clipped = max(0.0, min(ANOMALY_Z_CAP, z))
     return z_clipped / ANOMALY_Z_CAP
@@ -146,9 +160,20 @@ def score_alert(
     baseline: Optional[Baseline] = None,
     news_article_count: int = 0,
     today: Optional[date] = None,
+    proxy_donation_r: Optional[float] = None,
+    no_baseline_a: Optional[float] = None,
 ) -> Signals:
     """
     Compute the full alert score for a (donation, vote) pair.
+
+    Optional kwargs allow the pipeline to dampen state-side scoring without
+    forking the formula. Both default to None (federal/historical behavior):
+      proxy_donation_r: when set, R is replaced with this flat value
+        instead of the exp-decay over donation_date. Use for FTM lifetime
+        aggregates whose donation_date is a stamp-of-today proxy.
+      no_baseline_a: when set, used as the no-baseline fallback in
+        compute_A (instead of NO_BASELINE_A_DEFAULT). Use for state actors
+        whose baselines are systematically empty.
 
     Returns a Signals object with all intermediate values and the final score.
     """
@@ -160,8 +185,11 @@ def score_alert(
         return Signals(T=T, V=V, D=0, R=0, A=0, N=0, score=0.0, urgent=False)
 
     D = compute_D(donation.amount)
-    R = compute_R(donation.donation_date, today)
-    A = compute_A(donation.amount, baseline)
+    R = proxy_donation_r if proxy_donation_r is not None else compute_R(donation.donation_date, today)
+    A = compute_A(
+        donation.amount, baseline,
+        no_baseline_default=(no_baseline_a if no_baseline_a is not None else NO_BASELINE_A_DEFAULT),
+    )
     N = compute_N(news_article_count)
 
     gate = T * V

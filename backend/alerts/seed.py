@@ -44,8 +44,8 @@ def _seed_donations(conn) -> int:
         try:
             conn.execute(
                 """INSERT INTO donations
-                   (actor_id, pac_name, industry, amount, donation_date, fec_filing_id)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (actor_type, actor_id, pac_name, industry, amount, donation_date, fec_filing_id)
+                   VALUES ('federal', ?, ?, ?, ?, ?, ?)""",
                 row,
             )
             inserted += 1
@@ -75,8 +75,8 @@ def _seed_votes(conn) -> int:
         try:
             conn.execute(
                 """INSERT INTO scheduled_votes
-                   (bill_number, title, category, scheduled_date, chamber)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   (jurisdiction, state_code, bill_number, title, category, scheduled_date, chamber)
+                   VALUES ('federal', NULL, ?, ?, ?, ?, ?)""",
                 row,
             )
             inserted += 1

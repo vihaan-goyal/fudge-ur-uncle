@@ -5,3 +5,6 @@ pyyaml>=6.0
 python-dotenv>=1.0.0
 openai>=1.0.0
 bcrypt>=4.0.0
+
+# dev / tests
+pytest>=8.0.0

@@ -9,8 +9,15 @@ Tokens live in localStorage on the frontend and arrive via the
 import json
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+
+
+def _utcnow() -> datetime:
+    """Naive UTC datetime — datetime.utcnow() is deprecated as of Python 3.12.
+    Stays naive so it compares cleanly with the naive ISO strings SQLite
+    round-trips for our TIMESTAMP columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 import bcrypt
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -60,7 +67,7 @@ def _verify_password(plain: str, hashed: str) -> bool:
 
 def _new_session(conn, user_id: int) -> tuple[str, datetime]:
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)
+    expires_at = _utcnow() + timedelta(days=SESSION_TTL_DAYS)
     conn.execute(
         "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
         (token, user_id, expires_at),
@@ -117,7 +124,13 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         ).fetchone()
     if not row:
         raise HTTPException(status_code=401, detail="Invalid token")
-    if row["expires_at"] < datetime.utcnow():
+    # PARSE_DECLTYPES converters key off the column type in the *table*; through
+    # a JOIN sqlite3 sometimes hands back the raw ISO string instead of a
+    # datetime. Coerce explicitly so the comparison below isn't lexicographic.
+    exp = row["expires_at"]
+    if isinstance(exp, str):
+        exp = datetime.fromisoformat(exp)
+    if exp < _utcnow():
         raise HTTPException(status_code=401, detail="Session expired")
     return _user_payload(row)
 
