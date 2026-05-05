@@ -8,9 +8,16 @@ Covers: candidate totals, committee donations, PAC contributions,
         individual contributions, independent expenditures.
 """
 
+from datetime import date
 import httpx
 from typing import Optional
 from config import OPENFEC_BASE, DATA_GOV_API_KEY
+
+
+def _current_cycle() -> int:
+    """FEC cycles use the EVEN year of each 2-year period (e.g. 2026 covers 2025-2026)."""
+    y = date.today().year
+    return y if y % 2 == 0 else y + 1
 
 # -- Embedded sample data for offline dev --
 SAMPLE_CANDIDATE_TOTALS = {
@@ -66,14 +73,16 @@ async def _get(endpoint: str, params: dict = None) -> dict:
 
 
 async def get_candidate_totals(
-    candidate_id: str, cycle: int = 2024
+    candidate_id: str, cycle: Optional[int] = None
 ) -> dict:
     """
     Get financial summary for a candidate.
-    
+
     Endpoint: /candidate/{candidate_id}/totals/
     Returns:  receipts, disbursements, cash on hand, PAC vs individual split
     """
+    if cycle is None:
+        cycle = _current_cycle()
     try:
         data = await _get(
             f"/candidate/{candidate_id}/totals/",
@@ -113,9 +122,11 @@ async def _get_principal_committee_id(candidate_id: str, cycle: int) -> str:
 
 
 async def get_top_contributors(
-    candidate_id: str, cycle: int = 2024, limit: int = 10
+    candidate_id: str, cycle: Optional[int] = None, limit: int = 10
 ) -> list[dict]:
     """Get top contributing committees/PACs. Endpoint: /schedules/schedule_a/by_contributor/"""
+    if cycle is None:
+        cycle = _current_cycle()
     try:
         committee_id = await _get_principal_committee_id(candidate_id, cycle)
         if not committee_id:
@@ -140,13 +151,15 @@ async def get_top_contributors(
 
 
 async def get_top_employers(
-    candidate_id: str, cycle: int = 2024, limit: int = 10
+    candidate_id: str, cycle: Optional[int] = None, limit: int = 10
 ) -> list[dict]:
     """
     Get top employers of individual donors — the same methodology OpenSecrets uses.
     Aggregates itemized individual contributions by the donor's listed employer.
     Endpoint: /schedules/schedule_a/by_employer/
     """
+    if cycle is None:
+        cycle = _current_cycle()
     try:
         committee_id = await _get_principal_committee_id(candidate_id, cycle)
         if not committee_id:
@@ -175,14 +188,16 @@ async def get_top_employers(
 
 
 async def get_independent_expenditures(
-    candidate_id: str, cycle: int = 2024, limit: int = 20
+    candidate_id: str, cycle: Optional[int] = None, limit: int = 20
 ) -> list[dict]:
     """
     Get independent expenditures for/against a candidate.
-    
+
     Endpoint: /schedules/schedule_e/by_candidate/
     These are PAC ads, mailers, etc. that are NOT coordinated with the campaign.
     """
+    if cycle is None:
+        cycle = _current_cycle()
     try:
         data = await _get(
             "/schedules/schedule_e/by_candidate/",
@@ -209,14 +224,16 @@ async def search_candidates(
     name: Optional[str] = None,
     state: Optional[str] = None,
     office: Optional[str] = None,
-    cycle: int = 2024,
+    cycle: Optional[int] = None,
     limit: int = 20,
 ) -> list[dict]:
     """
     Search for candidates by name, state, or office.
-    
+
     office: 'H' (House), 'S' (Senate), 'P' (President)
     """
+    if cycle is None:
+        cycle = _current_cycle()
     params = {"cycle": cycle, "per_page": limit, "sort": "-receipts"}
     if name:
         params["q"] = name

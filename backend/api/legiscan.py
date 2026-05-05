@@ -14,6 +14,8 @@ Falls back to SAMPLE_STATE_LEGISLATORS when no API key is set or the
 upstream request fails, matching the rest of backend/api/*.
 """
 import asyncio
+import time
+
 import httpx
 
 from config import LEGISCAN_API_KEY, LEGISCAN_BASE
@@ -21,6 +23,13 @@ from api import ai_cache
 from alerts.state_categories import categorize as _categorize_title
 
 _TIMEOUT = 15.0
+
+# Free tier is documented at 1 req/sec. `get_legislator_votes` and other paths
+# fan out via asyncio.gather, so we serialize through this lock + spacing to
+# stay under the limit instead of relying on burst tolerance.
+_RATE_LIMIT_INTERVAL = 1.05
+_rate_lock = asyncio.Lock()
+_last_call_at = 0.0
 
 # 7-day TTL: state legislators + sessions barely move mid-session.
 _LIST_TTL_HOURS = 24 * 7
@@ -157,14 +166,24 @@ SAMPLE_LEGISLATOR_PROFILE = {
 # ---- HTTP helpers -------------------------------------------------
 
 async def _call(op: str, **params) -> dict:
-    """Raw Legiscan GET. Returns the parsed JSON payload or raises."""
+    """Raw Legiscan GET. Returns the parsed JSON payload or raises.
+
+    Serialized + spaced via `_rate_lock` so concurrent gather() callers don't
+    burst past the 1 req/sec free-tier limit.
+    """
     if not LEGISCAN_API_KEY:
         raise RuntimeError("LEGISCAN_API_KEY not set")
+    global _last_call_at
     q = {"key": LEGISCAN_API_KEY, "op": op, **params}
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.get(LEGISCAN_BASE, params=q)
-        resp.raise_for_status()
-        data = resp.json()
+    async with _rate_lock:
+        gap = time.monotonic() - _last_call_at
+        if gap < _RATE_LIMIT_INTERVAL:
+            await asyncio.sleep(_RATE_LIMIT_INTERVAL - gap)
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(LEGISCAN_BASE, params=q)
+            resp.raise_for_status()
+            data = resp.json()
+        _last_call_at = time.monotonic()
     if data.get("status") != "OK":
         raise RuntimeError(f"legiscan {op} returned status={data.get('status')}: {data.get('alert')}")
     return data

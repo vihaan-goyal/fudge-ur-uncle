@@ -461,7 +461,7 @@ const LoginScreen = ({ onNav, onSignedIn, offline }) => {
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
             <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
-            <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
           </div>
           <div>
             <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
@@ -492,9 +492,10 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  const atMax = selected.length >= 5;
   const toggle = (issue) => {
     if (selected.includes(issue)) setSelected(selected.filter((i) => i !== issue));
-    else if (selected.length < 5) setSelected([...selected, issue]);
+    else if (!atMax) setSelected([...selected, issue]);
   };
 
   const done = async () => {
@@ -523,7 +524,9 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 12, color: colors.textMuted, fontFamily: font, marginBottom: 12 }}>{selected.length}/5 selected</div>
+        <div style={{ fontSize: 12, color: atMax ? colors.accent : colors.textMuted, fontFamily: font, marginBottom: 12 }}>
+          {selected.length}/5 selected{atMax ? " · deselect one to choose another" : ""}
+        </div>
         {error && (
           <div style={{ fontSize: 11, color: colors.red, fontFamily: font, marginBottom: 8 }}>{error}</div>
         )}
@@ -800,12 +803,52 @@ const SearchScreen = ({ onNav, onSelectPolitician, onSelectStateRep, userState }
   );
 };
 
+// Synthesize a profile-shaped fallback for an arbitrary bioguide_id when the
+// backend is unreachable. Without this, every offline profile rendered as
+// Murphy regardless of which card was tapped.
+function makeOfflineProfile(bioguideId) {
+  if (bioguideId === SAMPLE.profile.profile.bioguide_id) return SAMPLE.profile;
+  const rep = SAMPLE.reps.find((r) => r.bioguide_id === bioguideId);
+  if (!rep) return null;
+  return {
+    profile: {
+      bioguide_id: rep.bioguide_id,
+      name: rep.name,
+      party: rep.party,
+      state: rep.state,
+      district: rep.district,
+      chamber: rep.chamber,
+      phone: rep.phone,
+      website: rep.website,
+      office: rep.office,
+    },
+    funding: {
+      total_raised: rep.funding?.total_raised || 0,
+      total_funding: 0,
+      pac_total: rep.funding?.pac_total || 0,
+      small_donor_total: rep.funding?.small_donor_total || 0,
+      individual_total: 0,
+      top_industries: [],
+      top_donors: [],
+    },
+    votes: { recent: [], total_tracked: 0, yea_count: 0, nay_count: 0 },
+    sponsored_bills: [],
+    promise_score: null,
+    contact: {
+      phone: rep.phone || "",
+      website: rep.website || "",
+      office: rep.office || "",
+      contact_form: "",
+    },
+  };
+}
+
 // 7. POLITICIAN PROFILE - WIRED TO BACKEND
 const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
   const { data, loading, error, offline, reload } = useApi(
     () => api.getProfile(bioguideId),
     [bioguideId],
-    SAMPLE.profile
+    makeOfflineProfile(bioguideId)
   );
 
   useEffect(() => {

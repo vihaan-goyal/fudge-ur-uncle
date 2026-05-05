@@ -75,8 +75,11 @@ def _bill_page_url(bill_prefix: str, number: str, congress: int) -> str:
     bill_type = _BILL_TYPES.get(bill_prefix)
     if not bill_type or not number:
         return ""
-    ordinal = f"{congress}th" if 11 <= congress % 100 <= 13 else {1: "1st", 2: "2nd", 3: "3rd"}.get(congress % 10, f"{congress}th")
-    return f"https://www.congress.gov/bill/{ordinal}-congress/{bill_type}/{number}"
+    if 11 <= congress % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(congress % 10, "th")
+    return f"https://www.congress.gov/bill/{congress}{suffix}-congress/{bill_type}/{number}"
 
 
 def _extract_bills(documents: list, congress: int) -> list:

@@ -11,8 +11,18 @@ Usage:
 
 import json
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+
+
+def _utcnow_iso() -> str:
+    """Match the format the ai_cache adapter writes — naive UTC ISO with 'T'.
+
+    SQLite's CURRENT_TIMESTAMP is space-separated, so comparing it lexically
+    against stored ISO-with-T values misjudges any expiry within the current
+    day (T > space).
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 from ..db import connect
 from . import config
@@ -236,11 +246,13 @@ def _state_for_actor_map(conn) -> dict[str, str]:
                 if pid is not None:
                     out[str(pid)] = state.upper()
 
+    now_iso = _utcnow_iso()
     try:
         rows = conn.execute(
             """SELECT value_json FROM ai_cache
                WHERE cache_key LIKE 'legiscan:people:%'
-                 AND expires_at > CURRENT_TIMESTAMP"""
+                 AND expires_at > ?""",
+            (now_iso,),
         ).fetchall()
         for row in rows:
             try:
@@ -261,7 +273,8 @@ def _state_for_actor_map(conn) -> dict[str, str]:
         rows = conn.execute(
             """SELECT value_json FROM ai_cache
                WHERE cache_key LIKE 'legiscan:profile:%'
-                 AND expires_at > CURRENT_TIMESTAMP"""
+                 AND expires_at > ?""",
+            (now_iso,),
         ).fetchall()
         for row in rows:
             try:
