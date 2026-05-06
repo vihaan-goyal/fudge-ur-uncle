@@ -83,15 +83,18 @@ KNOWN_PACS = {
     "morgan stanley": "securities_investment",
     "american bankers association": "commercial_banks",
 
-    # Tech
-    "alphabet": "internet",
-    "google": "internet",
+    # Tech (brand names that double as common English words use a more
+    # specific key — bare "apple"/"alphabet"/"amazon" would word-match in
+    # PAC names like "Big Apple Realtors" or "Alphabet Soup Education").
+    "alphabet inc": "internet",
+    "google llc": "internet",
     "meta platforms": "internet",
     "facebook": "internet",
     "microsoft": "computer_software",
-    "amazon": "internet",
-    "apple": "electronics_mfg",
-    "oracle": "computer_software",
+    "amazon corporate": "internet",
+    "amazon.com": "internet",
+    "apple inc": "electronics_mfg",
+    "oracle corporation": "computer_software",
     "comcast": "telecom_services",
     "at&t": "telecom_services",
     "verizon communications": "telecom_services",
@@ -183,8 +186,8 @@ KNOWN_PACS = {
     "mortgage bankers association": "real_estate",
     "national multifamily housing council": "real_estate",
     "national apartment association": "real_estate",
-    "ups": "transportation_unions",
-    "fedex": "transportation_unions",
+    "ups": "trucking",
+    "fedex": "trucking",
     "norfolk southern": "railroads",
     "csx": "railroads",
     "union pacific": "railroads",
@@ -303,6 +306,15 @@ KEYWORD_RULES = [
 ]
 
 
+# Word-boundary patterns derived from KNOWN_PACS so short tokens like "ups"
+# don't match inside longer words ("groups"). re.escape handles brand names
+# with metacharacters (e.g. "at&t", "bristol-myers squibb").
+_KNOWN_PAC_PATTERNS = [
+    (re.compile(r"\b" + re.escape(name) + r"\b"), industry)
+    for name, industry in KNOWN_PACS.items()
+]
+
+
 def _normalize(name: str) -> str:
     """Lowercase, strip common suffixes, collapse whitespace.
 
@@ -340,9 +352,9 @@ def classify(pac_name: str) -> str:
 
     norm = _normalize(pac_name)
 
-    # Tier 1: exact / prefix match on known PACs
-    for known_name, industry in KNOWN_PACS.items():
-        if known_name in norm:
+    # Tier 1: word-boundary match against known PAC names
+    for pattern, industry in _KNOWN_PAC_PATTERNS:
+        if pattern.search(norm):
             return industry
 
     # Tier 2: keyword fallback

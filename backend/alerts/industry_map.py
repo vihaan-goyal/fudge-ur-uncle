@@ -31,7 +31,7 @@ INDUSTRY_CATEGORY_MAP = {
     },
     "infrastructure": {
         "primary": ["construction", "engineering", "cement_concrete", "steel"],
-        "secondary": ["electric_utilities", "railroads", "trucking", "transportation_unions"],
+        "secondary": ["electric_utilities", "railroads", "trucking", "airlines", "sea_transport", "transportation_unions"],
     },
     "technology": {
         "primary": ["computer_software", "internet", "telecom_services", "electronics_mfg"],
