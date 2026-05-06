@@ -221,4 +221,21 @@ A third audit pass turned up four real correctness bugs and two UX rough edges; 
 
 No new tests were added — the existing seven still pass. The two ad-hoc verification scripts (cycle/ordinal asserts, throttle timing, expires_at filter) were one-shot and removed; if any of these regress, the symptom is visible in the UI (stale funding numbers, broken bill URLs, 429 spam in `[legiscan]` logs).
 
+## Audit Cleanup (May 2026, fourth pass)
+
+A fourth pass focused on the alert-pipeline *inputs* — the PAC name → industry classifier and the FTM/CRP catcode → industry mapper — both of which were silently miscategorizing donations in ways that wouldn't show up in any UI or test.
+
+1. **`pac_classifier.classify()` matched KNOWN_PACS with `if known_name in norm`** — a substring containment check. Short brand-name keys (`"ups"`, `"ubs"`, `"pnc"`, `"kkr"`, etc.) and common-word keys (`"apple"`, `"alphabet"`, `"amazon"`, `"oracle"`) produced false positives whenever the substring appeared inside an unrelated word. Concrete example: `"Healthcare Groups PAC"` → normalized `"healthcare groups"` → contains `"ups"` → tagged `transportation_unions`. Pre-compiled the dict into word-boundary regex patterns (`\b{name}\b`) and tightened the four common-word brand keys to require a corporate suffix (`apple` → `apple inc`, `amazon` → `amazon corporate`/`amazon.com`, etc.).
+
+2. **UPS and FedEx PACs were classified as `transportation_unions`.** Both are corporate logistics, not labor unions; their PAC money should align with infrastructure/transportation policy, not labor. Recategorized to `trucking`. Same fix in `catcode_map.FTM_NAME_TO_INDUSTRY`: `Air Transport`, `Trucking`, `Sea Transport`, `Railroads` were all collapsed into `transportation_unions`. Now they map to `airlines` / `trucking` / `sea_transport` / `railroads` respectively.
+
+3. **`industry_map.py` got two new slugs** — `airlines` and `sea_transport` — added to infrastructure secondary so the new catcode mappings have a topic-match category to score against. Without this addition, the recategorized FTM rows would have scored T=0 and never alerted.
+
+Test coverage: `backend/tests/test_classifier.py` (17 parametrized cases) locks in the word-boundary behavior and the corrected UPS/FedEx slugs. Combined suite is now 27 passing across `test_smoke.py` (HTTP shape), `test_pipeline.py` (federal/state scoring + stale-sweep), and `test_classifier.py`.
+
+**Still open from this audit (deferred — none cause active misclassification today, only silent under-alerting):**
+- Six FTM industry slugs are orphans in `industry_map.py`: `environmental_svcs`, `alt_energy`, `forestry`, `media`, `business_services`, `gambling`. Donations in these categories silently score T=0 against every vote (under-alerting, conservative direction). Fix is one diff adding them to existing categories — `alt_energy`/`environmental_svcs` → environment, `media` → technology, `forestry` → agriculture, `business_services`/`gambling` → economy.
+- `industry_for_catcode()` and the entire `CATCODE_TO_INDUSTRY` + `SECTOR_FALLBACK` tables in `catcode_map.py` are dead code — only `industry_for_ftm_name` is called anywhere. ~130 lines either need wiring up (FEC data does have catcodes) or deleting.
+- Several over-broad `KEYWORD_RULES` in `pac_classifier.py` (`(insurance|mutual)`, `\binvestment\b`, `(power company|energy)`) — uncommon enough in real FEC PAC-name space to defer.
+
 **State pipeline now needs cached rosters to attribute donations.** `_run_for_jurisdiction` (state side) groups donations by the actor's state via `_state_for_actor_map`, which reads cached `legiscan:people:{STATE}` and `legiscan:profile:{people_id}` rows (plus `SAMPLE_STATE_LEGISLATORS` as a fallback). State donations whose `people_id` isn't in any of those sources are skipped with a printed count rather than fanned out across every state's bills. If state alerts go missing after a cache wipe, hit the state-rep screen for that legislator (or run `ingest_state_votes`) to repopulate the roster cache before re-running the pipeline.
