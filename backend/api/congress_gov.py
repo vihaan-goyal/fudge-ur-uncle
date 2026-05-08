@@ -159,6 +159,104 @@ SAMPLE_BILLS = [
 ]
 
 
+# Bills awaiting floor action — second-chamber consideration after passing the
+# first, or reported out of committee with a calendar placement. We match on
+# Congress.gov's latestAction text rather than parsing each bill's action
+# history. See `get_active_bills` for context.
+#
+# Patterns are intentionally tight: "introduced" or "referred to committee"
+# are far too early for the V (vote-proximity) signal to be meaningful, and
+# "became public law" / "presented to the President" are after the fact.
+_FLOOR_IMMINENT_PATTERN = re.compile(
+    r"(placed on (the )?(senate legislative |union )?calendar|"
+    r"reported (by|to|with|original|favorably|without amendment)|"
+    r"passed (senate|house)( as amended)?|"
+    r"received in the (senate|house)|"
+    r"motion to proceed|"
+    r"considered by the (senate|house)|"
+    r"on agreeing to the (resolution|amendment)|"
+    r"engrossed amendment|"
+    r"discharge petition|"
+    r"committee on rules)",
+    re.IGNORECASE,
+)
+
+# Resolution-type bills are mostly symbolic ("expressing the sense of",
+# commemorations, internal procedure) and don't pair meaningfully with
+# industry donations. Skip at ingest so they never reach the scoring pool.
+_RESOLUTION_BILL_TYPES = {"hres", "sres", "hconres", "sconres"}
+
+# Display formatting for Congress.gov bill types. The seed data and the rest
+# of the codebase use dotted forms ("S.1190", "H.R.1500") so we match that.
+_BILL_TYPE_DISPLAY = {
+    "hr": "H.R.",
+    "s": "S.",
+    "hjres": "H.J.Res.",
+    "sjres": "S.J.Res.",
+    "hconres": "H.Con.Res.",
+    "sconres": "S.Con.Res.",
+    "hres": "H.Res.",
+    "sres": "S.Res.",
+}
+
+
+def _format_bill_number(bill_type: str, number) -> str:
+    bt = (bill_type or "").lower()
+    prefix = _BILL_TYPE_DISPLAY.get(bt, f"{bt.upper()}.")
+    return f"{prefix}{number}"
+
+
+def is_floor_imminent(latest_action_text: str) -> bool:
+    """True if a Congress.gov latestAction string looks like the bill is
+    queued for or actively in floor consideration. Public so tests can
+    exercise the matcher in isolation."""
+    return bool(latest_action_text) and bool(
+        _FLOOR_IMMINENT_PATTERN.search(latest_action_text)
+    )
+
+
+# Sample fallback for offline dev / no-key runs. Status dates are static; the
+# ingester bumps any past projected date to today so V doesn't go to zero.
+SAMPLE_ACTIVE_BILLS = [
+    {
+        "bill_id": "s1190-119",
+        "number": "S.1190",
+        "title": "Clean Air Standards Modernization Act",
+        "status": "Placed on Senate Legislative Calendar",
+        "status_date": "2026-04-25",
+        "chamber": "senate",
+        "congress": 119,
+    },
+    {
+        "bill_id": "s872-119",
+        "number": "S.872",
+        "title": "Prescription Drug Pricing Reform Act",
+        "status": "Reported by Committee on Finance",
+        "status_date": "2026-04-30",
+        "chamber": "senate",
+        "congress": 119,
+    },
+    {
+        "bill_id": "hr1500-119",
+        "number": "H.R.1500",
+        "title": "Defense Authorization Supplemental",
+        "status": "Passed House",
+        "status_date": "2026-05-01",
+        "chamber": "house",
+        "congress": 119,
+    },
+    {
+        "bill_id": "s441-119",
+        "number": "S.441",
+        "title": "Social Security Stabilization Act",
+        "status": "Reported with amendments",
+        "status_date": "2026-04-15",
+        "chamber": "senate",
+        "congress": 119,
+    },
+]
+
+
 async def _get(endpoint: str, params: dict = None) -> dict:
     """Make an authenticated request to the Congress.gov API."""
     params = params or {}
@@ -312,6 +410,88 @@ async def get_bill_detail(
     except Exception as e:
         print(f"[congress] Error fetching bill: {e}")
         return {}
+
+
+async def get_active_bills(
+    congress: int = 119,
+    page_size: int = 250,
+    max_pages: int = 4,
+) -> list[dict]:
+    """
+    Federal counterpart to legiscan.get_active_bills.
+
+    Pulls recently-updated bills from /v3/bill/{congress} (sorted updateDate
+    descending) and filters to those whose latestAction text matches
+    `_FLOOR_IMMINENT_PATTERN` — committee-reported, calendar-placed, or
+    passed one chamber and pending the other.
+
+    Resolution-type bills (hres/sres/hconres/sconres) are dropped at this
+    layer; they're symbolic and don't produce useful donation×vote signal.
+
+    Returns dicts shaped like the state-side ingester's input:
+        {bill_id, number, title, status, status_date, chamber, congress}
+
+    Falls back to SAMPLE_ACTIVE_BILLS when the request fails or the API
+    key is missing/DEMO. Pagination caps at `max_pages * page_size` total
+    results — defaults to 1000, more than enough since we filter aggressively.
+    """
+    if not DATA_GOV_API_KEY or DATA_GOV_API_KEY == "DEMO_KEY":
+        return list(SAMPLE_ACTIVE_BILLS)
+
+    page_size = min(page_size, 250)
+    results: list[dict] = []
+    seen_ids: set[str] = set()
+    offset = 0
+
+    for _ in range(max_pages):
+        try:
+            data = await _get(
+                f"/bill/{congress}",
+                {"sort": "updateDate+desc", "limit": page_size, "offset": offset},
+            )
+        except Exception as e:
+            print(f"[congress] active-bills fetch failed at offset={offset}: {e}")
+            break
+
+        bills_raw = data.get("bills", []) or []
+        if not bills_raw:
+            break
+
+        for b in bills_raw:
+            bill_type = (b.get("type") or "").lower()
+            if bill_type in _RESOLUTION_BILL_TYPES:
+                continue
+            la = b.get("latestAction") or {}
+            la_text = la.get("text") or ""
+            if not is_floor_imminent(la_text):
+                continue
+            number = b.get("number") or ""
+            bill_id = f"{bill_type}{number}-{b.get('congress','')}"
+            if bill_id in seen_ids:
+                continue
+            seen_ids.add(bill_id)
+            chamber = "house" if bill_type.startswith("h") else "senate"
+            results.append({
+                "bill_id": bill_id,
+                "number": _format_bill_number(bill_type, number),
+                "title": b.get("title", ""),
+                "status": la_text,
+                "status_date": (la.get("actionDate") or "")[:10],
+                "chamber": chamber,
+                "congress": b.get("congress"),
+            })
+
+        if len(bills_raw) < page_size:
+            break
+        offset += page_size
+
+    if not results:
+        # The live API might be reachable but returning nothing useful; fall
+        # back so dev runs still produce something for the pipeline to chew on.
+        print("[congress] active-bills filter matched 0 rows; using sample fallback")
+        return list(SAMPLE_ACTIVE_BILLS)
+
+    return results
 
 
 async def get_sponsored_bills(bioguide_id: str, limit: int = 10) -> list[dict]:
