@@ -92,8 +92,8 @@ _MIN_MATCH_CONFIDENCE = 0.78
 # Stored as (state, name) -> eid; lookup is fuzzy so small name variations
 # (middle initials, suffixes) still resolve.
 SAMPLE_FTM_EIDS = {
-    ("CT", "Martin Looney"): "FTM-CT-9001",
-    ("CT", "Matt Ritter"): "FTM-CT-9002",
+    ("CT", "Martin Looney"): "13011269",
+    ("CT", "Matt Ritter"): "6508453",
 }
 
 # Keyed by eid only (FTM aggregates are lifetime, not per-cycle).
@@ -112,8 +112,8 @@ _RITTER_AGG = [
     {"industry_name": "Insurance", "amount": 9_500.0, "n_records": 4},
 ]
 SAMPLE_FTM_AGGREGATES = {
-    "FTM-CT-9001": _LOONEY_AGG,
-    "FTM-CT-9002": _RITTER_AGG,
+    "13011269": _LOONEY_AGG,  # LOONEY, MARTIN M (CT)
+    "6508453": _RITTER_AGG,   # RITTER, MATTHEW D (CT)
 }
 
 
