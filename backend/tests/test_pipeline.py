@@ -135,6 +135,55 @@ def test_state_calibration_lowers_score(clean_pipeline_db):
     assert row["urgent"] == 0
 
 
+def test_state_anchor_score_pins_at_verified_value(clean_pipeline_db):
+    """Pin the Ritter anchor: $22k pharmaceuticals x healthcare under state
+    calibration with the vote scheduled for today (the bump-to-today path
+    for engrossed bills whose status_date is already past).
+
+    Verified against live pipeline May 2026: score = 0.554. Tolerance is
+    tight (+/- 0.005) because the formula is deterministic; any drift means
+    PROXY_DONATION_R, NO_BASELINE_A_HONEST, or one of alpha/beta/gamma
+    moved off its default.
+
+    Closed-form check:
+        D = log10(22001)/log10(100001) ~= 0.8685
+        donation_signal = 0.5*D + 0.3*0.4 + 0.2*0.0 = 0.5542
+        score = T*V * donation_signal * 1 = 1*1 * 0.5542 = 0.554
+    """
+    import json
+    from db import connect
+    from backend.alerts.pipeline import run_pipeline
+
+    with connect() as conn:
+        _seed_pair(
+            conn, donation_amount=22_000, days_until_vote=0,
+            actor_id="STATE_REP_RITTER", actor_type="state",
+            jurisdiction="state", state_code="CT",
+            industry="pharmaceuticals", category="healthcare",
+        )
+        conn.execute(
+            "INSERT INTO ai_cache (cache_key, value_json, expires_at) VALUES (?, ?, ?)",
+            ("legiscan:people:CT",
+             json.dumps([{"people_id": "STATE_REP_RITTER", "state": "CT", "name": "Test"}]),
+             (datetime.now() + timedelta(days=1)).isoformat()),
+        )
+        conn.commit()
+
+    run_pipeline()
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT score, urgent FROM alerts WHERE actor_id = 'STATE_REP_RITTER'"
+        ).fetchone()
+    assert row is not None, "anchor case should produce an alert row"
+    assert abs(row["score"] - 0.554) < 0.005, (
+        f"state anchor (Ritter $22k pharma x healthcare) drifted from verified "
+        f"0.554 to {row['score']}; check PROXY_DONATION_R / NO_BASELINE_A_HONEST / "
+        f"alpha-beta-gamma weights"
+    )
+    assert row["urgent"] == 0
+
+
 def test_stale_alert_swept_when_donation_ages_out(clean_pipeline_db):
     """An alert written under a fresh donation should be removed by the
     stale-sweep when the donation's date moves outside the lookback window."""
