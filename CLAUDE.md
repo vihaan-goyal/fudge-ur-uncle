@@ -233,9 +233,23 @@ A fourth pass focused on the alert-pipeline *inputs* — the PAC name → indust
 
 Test coverage: `backend/tests/test_classifier.py` (17 parametrized cases) locks in the word-boundary behavior and the corrected UPS/FedEx slugs. Combined suite is now 27 passing across `test_smoke.py` (HTTP shape), `test_pipeline.py` (federal/state scoring + stale-sweep), and `test_classifier.py`.
 
-**Still open from this audit (deferred — none cause active misclassification today, only silent under-alerting):**
-- Six FTM industry slugs are orphans in `industry_map.py`: `environmental_svcs`, `alt_energy`, `forestry`, `media`, `business_services`, `gambling`. Donations in these categories silently score T=0 against every vote (under-alerting, conservative direction). Fix is one diff adding them to existing categories — `alt_energy`/`environmental_svcs` → environment, `media` → technology, `forestry` → agriculture, `business_services`/`gambling` → economy.
-- `industry_for_catcode()` and the entire `CATCODE_TO_INDUSTRY` + `SECTOR_FALLBACK` tables in `catcode_map.py` are dead code — only `industry_for_ftm_name` is called anywhere. ~130 lines either need wiring up (FEC data does have catcodes) or deleting.
-- Several over-broad `KEYWORD_RULES` in `pac_classifier.py` (`(insurance|mutual)`, `\binvestment\b`, `(power company|energy)`) — uncommon enough in real FEC PAC-name space to defer.
+All three items deferred from this pass were closed in the fifth pass below.
 
 **State pipeline now needs cached rosters to attribute donations.** `_run_for_jurisdiction` (state side) groups donations by the actor's state via `_state_for_actor_map`, which reads cached `legiscan:people:{STATE}` and `legiscan:profile:{people_id}` rows (plus `SAMPLE_STATE_LEGISLATORS` as a fallback). State donations whose `people_id` isn't in any of those sources are skipped with a printed count rather than fanned out across every state's bills. If state alerts go missing after a cache wipe, hit the state-rep screen for that legislator (or run `ingest_state_votes`) to repopulate the roster cache before re-running the pipeline.
+
+## Audit Cleanup (May 2026, fifth pass)
+
+Closed all three items deferred from the fourth pass:
+
+1. **Six orphan FTM industry slugs in `industry_map.py`.** Donations in these categories were scoring T=0 against every vote and never alerting. Added to existing categories: `alt_energy` + `environmental_svcs` → environment (primary — direct industry players), `forestry` → agriculture (primary), `media` → technology (secondary), `business_services` + `gambling` → economy (secondary).
+
+2. **`catcode_map.py` dead code deleted (~135 lines).** `CATCODE_TO_INDUSTRY`, `SECTOR_FALLBACK`, and `industry_for_catcode()` had zero callers. OpenFEC's `/schedules/schedule_a/` doesn't return catcodes (those are an OpenSecrets/CRP product) so the path to using these would require an OpenSecrets integration that's not on the roadmap. The productive half (`FTM_NAME_TO_INDUSTRY` + `industry_for_ftm_name`, only call site `ingest_ftm.py:41`) stays. The filename `catcode_map.py` is now technically a misnomer; left in place to avoid touching the import. Rename if it ever bothers anyone.
+
+3. **`pac_classifier.py` over-broad KEYWORD_RULES tightened.** Three rules were dragging unrelated PAC names into industry buckets:
+   - `\b(insurance|mutual)\b` → `\binsurance\b`. Bare `mutual` matched "Mutual Aid Society" / "Mutual Industries"; named insurers like Liberty Mutual / MetLife / Prudential are in KNOWN_PACS.
+   - `\b(power company|energy)\b` → `\bpower (company|cooperative|authority)\b`. Bare `energy` matched oil-co names like "Strategic Energy Coalition"; named utilities like Duke / NextEra are in KNOWN_PACS.
+   - `\binvestment\b` catch-all → required a corporate-context word (`group|company|corp|fund|advisors|partners|associates|holdings|services|institute|council`) so PACs that describe "investment" metaphorically don't tag as financial.
+
+   Trade-off: a few real insurance PACs that use "Mutual" without "Insurance" in their name (e.g. "Mutual of Omaha") now classify as `unknown` instead of being force-fit. Conservative under-alerting beats false alerts; if any matter, add to KNOWN_PACS individually.
+
+Test coverage: 6 new parametrized cases in `test_classifier.py` (3 false-positive locks for tightening, 3 legitimate-case confirmations under the tightened rules). Combined suite is now 33 passing across `test_smoke.py`, `test_pipeline.py`, and `test_classifier.py`.

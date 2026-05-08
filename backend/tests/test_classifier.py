@@ -1,10 +1,13 @@
 """Regression tests for backend/alerts/pac_classifier.py.
 
-Locks in two recent fixes:
+Locks in three recent fixes:
 1. Word-boundary matching on KNOWN_PACS — short tokens like "ups" must not
    match inside longer words ("groups", "startups").
 2. UPS / FedEx are corporate logistics PACs, not unions; both should classify
    as `trucking`, not `transportation_unions`.
+3. Tightened over-broad KEYWORD_RULES — bare `energy`, `mutual`, and `investment`
+   used to drag unrelated PAC names into electric_utilities / insurance /
+   securities_investment buckets. They now require corporate-context words.
 
 Also covers a handful of previously-known-good cases so the keyword fallback
 doesn't drift.
@@ -43,6 +46,16 @@ from backend.alerts.pac_classifier import classify
     ("JPMorgan Chase & Co PAC", "commercial_banks"),
     ("Chesapeake Energy Exploration PAC", "oil_gas"),
     ("National Realtors Assn PAC", "real_estate"),
+
+    # Bug #3: bare-keyword false positives that used to misclassify
+    ("Mutual Aid Society PAC", "unknown"),         # used to hit "mutual" → insurance
+    ("Strategic Energy Coalition PAC", "unknown"), # used to hit "energy" → electric_utilities
+    ("Investment in Education PAC", "unknown"),    # used to hit "investment" → securities_investment
+
+    # Bug #3: tightened rules still catch the legitimate cases
+    ("Acme Insurance PAC", "insurance"),                  # bare "insurance" still works
+    ("Smith Investment Group PAC", "securities_investment"),  # corporate context preserved
+    ("Sunbelt Power Cooperative PAC", "electric_utilities"),  # power + utility-shaped suffix
 
     # Edge cases
     ("", "unknown"),

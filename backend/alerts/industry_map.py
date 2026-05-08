@@ -14,7 +14,7 @@ Start simple; expand as we see what data actually comes in.
 
 INDUSTRY_CATEGORY_MAP = {
     "environment": {
-        "primary": ["oil_gas", "coal_mining", "electric_utilities", "automotive"],
+        "primary": ["oil_gas", "coal_mining", "electric_utilities", "automotive", "alt_energy", "environmental_svcs"],
         "secondary": ["chemical_manufacturing", "agriculture", "construction"],
     },
     "healthcare": {
@@ -23,7 +23,7 @@ INDUSTRY_CATEGORY_MAP = {
     },
     "economy": {
         "primary": ["commercial_banks", "securities_investment", "hedge_funds", "private_equity"],
-        "secondary": ["accounting", "real_estate", "insurance", "retail", "lawyers_law_firms"],
+        "secondary": ["accounting", "real_estate", "insurance", "retail", "lawyers_law_firms", "business_services", "gambling"],
     },
     "defense": {
         "primary": ["defense_aerospace", "defense_electronics", "private_military"],
@@ -35,14 +35,14 @@ INDUSTRY_CATEGORY_MAP = {
     },
     "technology": {
         "primary": ["computer_software", "internet", "telecom_services", "electronics_mfg"],
-        "secondary": ["venture_capital", "data_processing", "retail"],
+        "secondary": ["venture_capital", "data_processing", "retail", "media"],
     },
     "labor": {
         "primary": ["labor_unions", "public_sector_unions", "industrial_unions"],
         "secondary": ["building_trades_unions", "transportation_unions"],
     },
     "agriculture": {
-        "primary": ["crop_production", "livestock", "food_processing", "agribusiness"],
+        "primary": ["crop_production", "livestock", "food_processing", "agribusiness", "forestry"],
         "secondary": ["food_beverage", "tobacco"],
     },
     "housing": {

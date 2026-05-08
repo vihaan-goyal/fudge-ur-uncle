@@ -237,7 +237,7 @@ KEYWORD_RULES = [
     # Utilities
     (r"\belectric (cooperative|utility|power)\b", "electric_utilities"),
     (r"\bedison\b", "electric_utilities"),
-    (r"\b(power company|energy)\b", "electric_utilities"),
+    (r"\bpower (company|cooperative|authority)\b", "electric_utilities"),
 
     # Pharma / biotech
     (r"\b(pharma|pharmaceutical|drugs|biopharm|biologic)\b", "pharmaceuticals"),
@@ -260,7 +260,7 @@ KEYWORD_RULES = [
      "securities_investment"),
     (r"\b(hedge fund|hedge funds)\b", "hedge_funds"),
     (r"\b(private equity)\b", "private_equity"),
-    (r"\b(insurance|mutual)\b", "insurance"),
+    (r"\binsurance\b", "insurance"),
 
     # Tech
     (r"\b(software|technologies|tech corp|technology)\b", "computer_software"),
@@ -301,8 +301,10 @@ KEYWORD_RULES = [
     (r"\bcoal\b", "coal_mining"),
     (r"\b(mining|mineral)\b", "coal_mining"),
 
-    # Securities catch-all
-    (r"\binvestment\b", "securities_investment"),
+    # Securities catch-all — require a corporate-context word so PAC names
+    # that just describe "investment" as a metaphor don't tag as financial.
+    (r"\binvestment (group|company|corp|fund|advisors|partners|associates|holdings|services|institute|council)\b",
+     "securities_investment"),
 ]
 
 
