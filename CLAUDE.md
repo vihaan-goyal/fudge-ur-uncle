@@ -169,6 +169,7 @@ The health endpoint `GET /` reports which keys are configured.
 - Vite proxies `/api/*` to `localhost:8000`, so don't add `http://localhost:8000` prefixes in frontend fetches - just use `/api/...`.
 - For production frontend builds, set `VITE_API_BASE=https://your-backend.example.com` before `npm run build`.
 - The OpenFEC `candidate -> principal committee` resolution is fuzzy. See `get_principal_committee` in `ingest_fec.py` for the fallback chain (try scoped cycle, then unscoped, then committee lookup by candidate_id).
+- State alerts need cached Legiscan rosters to attribute donations. `_run_for_jurisdiction` (state side) groups donations by actor state via `_state_for_actor_map`, which reads cached `legiscan:people:{STATE}` and `legiscan:profile:{people_id}` rows (plus `SAMPLE_STATE_LEGISLATORS` as fallback). State donations whose `people_id` isn't in any of those is skipped. After a cache wipe: hit the state-rep screen (or run `ingest_state_votes`) to repopulate before re-running `pipeline.py`.
 
 ## Status (May 2026)
 
@@ -179,77 +180,8 @@ State alerts pipeline is now producing real cards on the UI (verified end-to-end
 Deferred / not yet implemented:
 - **FTM eid lookup at scale.** Live aggregate-fetching is verified working (`dataset=contributions&gro=d-cci&c-t-eid=<EID>` returns the right shape on real keys), but candidate enumeration by state is blocked on FTM's undocumented state-filter syntax — `_live_find_eid` is still a stub. The offline-directory workaround (`backend/data/ftm_eids.csv` loaded by `backend/api/ftm_directory.py`) is now in place, but the seed only contains the same two CT reps that `SAMPLE_FTM_EIDS` already covered. To get real donor data on more reps, the CSV needs hand-curated rows (one per legislator) — manual but straightforward, and unlocks both the no-key demo path and live aggregate fetching once `FTM_API_KEY` is reactivated. **Current dev key is quota-exhausted ("pending Institute review")** — empirical probing of new candidate-search prefixes is not possible until the cap resets or a new key is registered.
 
-## Audit Cleanup (May 2026)
+## Recent History
 
-The audit punch list (Critical/High/Medium/Low — 14 items spanning legiscan vote shape, state-pipeline cross-pollination, `updateMe` issues persistence, alert View Rep nav, auth expiry coercion, AI summary cache collisions, events header honesty, whoboughtmyrep sample keys, stance_analysis JSON parsing, alerts_router commits, CORS credentials, seed defaults, and assorted cosmetic stragglers) has been worked through. Search the git log for the cleanup commits if you need the per-bug context — the source is the canonical record now.
+Five rounds of audit cleanup (May 2026) shipped — covering legiscan vote-shape, state-pipeline cross-pollination, UTC-naive datetime handling, OpenFEC cycle hardcoding, congress ordinal URL bug, ai_cache `expires_at` format mismatch, Legiscan rate limiting, FTM cache poisoning, frontend stale-token loop, PAC classifier substring false positives (UPS/UBS/etc.), UPS/FedEx misclassified as unions, and orphan FTM industry slugs. Each gotcha that has ongoing relevance is captured in Architecture Notes / Gotchas above; everything else lives in `git log` (search for "Audit Cleanup" / "pac_classifier" / "Close fifth-pass").
 
-**Cache-bust required after the legiscan vote-shape fix.** Pre-fix rows in `ai_cache` carry chamber-as-category and stale stance/promise outputs derived from them. Wipe before re-testing:
-```sql
-DELETE FROM ai_cache WHERE cache_key LIKE 'legiscan:votes:%';
-DELETE FROM ai_cache WHERE cache_key LIKE 'stances:state:%' OR cache_key LIKE 'promises:state:%';
-```
-
-## Audit Cleanup (May 2026, second pass)
-
-A follow-up scan caught five real bugs that the first pass missed; all are fixed:
-
-1. **Alerts time string was wrong by your local-UTC offset.** `alerts_router._row_to_alert` was using `datetime.now()` against the UTC-naive `created_at`. Fixed to compare against `datetime.now(timezone.utc).replace(tzinfo=None)`.
-2. **Pipeline re-runs left alerts aging forever** because `_upsert_alert`'s UPDATE didn't bump anything time-related. Added `updated_at` column + migration + bumps on both INSERT and UPDATE; router prefers `updated_at` for the relative-time string.
-3. **FTM cache was poisoned by transient failures.** A timeout or quota-exhaustion would silently store sample data under the live cache key for 24h. `_ftm_get` now raises `FTMUpstreamError` and `get_industry_aggregates` returns un-cached sample data on failure.
-4. **Stale tokens looped forever.** Added auto-clear of localStorage on 401 in `frontend/src/api.js`.
-5. **Auto-login could yank user back to Dashboard mid-navigation.** Added a `prev === SPLASH` guard in `App.jsx`.
-
-Plus cleanup: replaced four deprecated `datetime.utcnow()` call sites in `auth.py` and `ai_cache.py` with a `_utcnow()` helper.
-
-Test coverage was added at the same time — see Run Commands. Seven smoke tests cover health, signup/login/me/PATCH-issues, three 401 paths, and alerts shape/filters.
-
-## Audit Cleanup (May 2026, third pass)
-
-A third audit pass turned up four real correctness bugs and two UX rough edges; all fixed:
-
-1. **OpenFEC cycle was hardcoded `cycle: int = 2024`** in every public function in `backend/api/openfec.py` (`get_candidate_totals`, `get_top_contributors`, `get_top_employers`, `get_independent_expenditures`, `search_candidates`), and `server.py` never overrode it. Result: every funding screen showed 2023–2024 cycle totals well into the 2026 cycle. Replaced with `cycle: Optional[int] = None` + a `_current_cycle()` helper that returns `date.today().year` rounded up to the next even year, mirroring the same idiom already in `ingest_fec.py`.
-
-2. **`events._bill_page_url` mangled URLs for the 121st–123rd Congress.** Old code: `{1:"1st",2:"2nd",3:"3rd"}.get(congress%10, f"{congress}th")` — when the last digit was 1/2/3 (and not in the 11–13 teen range), the dict lookup returned `"1st"` etc. as the *entire* string, dropping the leading digits. So a bill in the 121st Congress linked to `congress.gov/bill/1st-congress/...`. Inactive at 119th but would have broken silently in Jan 2027. Now keeps the number and appends only the suffix.
-
-3. **`pipeline._state_for_actor_map` filtered with `expires_at > CURRENT_TIMESTAMP`.** `ai_cache` rows store `expires_at` via the `datetime` ISO adapter (`YYYY-MM-DDTHH:MM:SS`); SQLite's `CURRENT_TIMESTAMP` is space-separated. Lexically `T` (0x54) > space (0x20), so within-day expired rows leaked through (and within-day not-yet-expired rows could in theory be excluded too, depending on time-of-day). Bound a Python-side `_utcnow_iso()` parameter that matches the stored format. Verified end-to-end with a tmp-DB script: row written with `expires_at = now − 2h` is now correctly excluded; row with `now + 1d` is included.
-
-4. **Legiscan `_call` had no rate-limit enforcement.** `get_legislator_votes` does `asyncio.gather` over up to 8 sponsored bills (then up to 8 roll calls), bursting past the 1 req/sec free-tier limit and 429'ing in production. Added a process-wide `_rate_lock` + `_last_call_at` timestamp; spacing is 1.05s. Trade-off documented inline in the Legiscan section above. Verified: 4 parallel `_call`s now take ~3.15s instead of bursting.
-
-5. **Offline politician profile always rendered Murphy's data**, no matter which rep was tapped. `frontend/src/App.jsx` now uses `makeOfflineProfile(bioguideId)` which returns Murphy's full sample for `M001169`, synthesizes a profile shape from `SAMPLE.reps` for the other known bioguides (Blumenthal, Himes), and `null` otherwise (which routes to the existing `ErrorBanner` path).
-
-6. UX polish: LoginScreen now submits on Enter from either the email or password field; IssueSelectScreen counter goes accent-colored with a "deselect one to choose another" hint when 5/5 are selected so the previously-silent ignored 6th-click has visible context.
-
-No new tests were added — the existing seven still pass. The two ad-hoc verification scripts (cycle/ordinal asserts, throttle timing, expires_at filter) were one-shot and removed; if any of these regress, the symptom is visible in the UI (stale funding numbers, broken bill URLs, 429 spam in `[legiscan]` logs).
-
-## Audit Cleanup (May 2026, fourth pass)
-
-A fourth pass focused on the alert-pipeline *inputs* — the PAC name → industry classifier and the FTM/CRP catcode → industry mapper — both of which were silently miscategorizing donations in ways that wouldn't show up in any UI or test.
-
-1. **`pac_classifier.classify()` matched KNOWN_PACS with `if known_name in norm`** — a substring containment check. Short brand-name keys (`"ups"`, `"ubs"`, `"pnc"`, `"kkr"`, etc.) and common-word keys (`"apple"`, `"alphabet"`, `"amazon"`, `"oracle"`) produced false positives whenever the substring appeared inside an unrelated word. Concrete example: `"Healthcare Groups PAC"` → normalized `"healthcare groups"` → contains `"ups"` → tagged `transportation_unions`. Pre-compiled the dict into word-boundary regex patterns (`\b{name}\b`) and tightened the four common-word brand keys to require a corporate suffix (`apple` → `apple inc`, `amazon` → `amazon corporate`/`amazon.com`, etc.).
-
-2. **UPS and FedEx PACs were classified as `transportation_unions`.** Both are corporate logistics, not labor unions; their PAC money should align with infrastructure/transportation policy, not labor. Recategorized to `trucking`. Same fix in `catcode_map.FTM_NAME_TO_INDUSTRY`: `Air Transport`, `Trucking`, `Sea Transport`, `Railroads` were all collapsed into `transportation_unions`. Now they map to `airlines` / `trucking` / `sea_transport` / `railroads` respectively.
-
-3. **`industry_map.py` got two new slugs** — `airlines` and `sea_transport` — added to infrastructure secondary so the new catcode mappings have a topic-match category to score against. Without this addition, the recategorized FTM rows would have scored T=0 and never alerted.
-
-Test coverage: `backend/tests/test_classifier.py` (17 parametrized cases) locks in the word-boundary behavior and the corrected UPS/FedEx slugs. Combined suite is now 27 passing across `test_smoke.py` (HTTP shape), `test_pipeline.py` (federal/state scoring + stale-sweep), and `test_classifier.py`.
-
-All three items deferred from this pass were closed in the fifth pass below.
-
-**State pipeline now needs cached rosters to attribute donations.** `_run_for_jurisdiction` (state side) groups donations by the actor's state via `_state_for_actor_map`, which reads cached `legiscan:people:{STATE}` and `legiscan:profile:{people_id}` rows (plus `SAMPLE_STATE_LEGISLATORS` as a fallback). State donations whose `people_id` isn't in any of those sources are skipped with a printed count rather than fanned out across every state's bills. If state alerts go missing after a cache wipe, hit the state-rep screen for that legislator (or run `ingest_state_votes`) to repopulate the roster cache before re-running the pipeline.
-
-## Audit Cleanup (May 2026, fifth pass)
-
-Closed all three items deferred from the fourth pass:
-
-1. **Six orphan FTM industry slugs in `industry_map.py`.** Donations in these categories were scoring T=0 against every vote and never alerting. Added to existing categories: `alt_energy` + `environmental_svcs` → environment (primary — direct industry players), `forestry` → agriculture (primary), `media` → technology (secondary), `business_services` + `gambling` → economy (secondary).
-
-2. **`catcode_map.py` dead code deleted (~135 lines).** `CATCODE_TO_INDUSTRY`, `SECTOR_FALLBACK`, and `industry_for_catcode()` had zero callers. OpenFEC's `/schedules/schedule_a/` doesn't return catcodes (those are an OpenSecrets/CRP product) so the path to using these would require an OpenSecrets integration that's not on the roadmap. The productive half (`FTM_NAME_TO_INDUSTRY` + `industry_for_ftm_name`, only call site `ingest_ftm.py:41`) stays. The filename `catcode_map.py` is now technically a misnomer; left in place to avoid touching the import. Rename if it ever bothers anyone.
-
-3. **`pac_classifier.py` over-broad KEYWORD_RULES tightened.** Three rules were dragging unrelated PAC names into industry buckets:
-   - `\b(insurance|mutual)\b` → `\binsurance\b`. Bare `mutual` matched "Mutual Aid Society" / "Mutual Industries"; named insurers like Liberty Mutual / MetLife / Prudential are in KNOWN_PACS.
-   - `\b(power company|energy)\b` → `\bpower (company|cooperative|authority)\b`. Bare `energy` matched oil-co names like "Strategic Energy Coalition"; named utilities like Duke / NextEra are in KNOWN_PACS.
-   - `\binvestment\b` catch-all → required a corporate-context word (`group|company|corp|fund|advisors|partners|associates|holdings|services|institute|council`) so PACs that describe "investment" metaphorically don't tag as financial.
-
-   Trade-off: a few real insurance PACs that use "Mutual" without "Insurance" in their name (e.g. "Mutual of Omaha") now classify as `unknown` instead of being force-fit. Conservative under-alerting beats false alerts; if any matter, add to KNOWN_PACS individually.
-
-Test coverage: 6 new parametrized cases in `test_classifier.py` (3 false-positive locks for tightening, 3 legitimate-case confirmations under the tightened rules). Combined suite is now 33 passing across `test_smoke.py`, `test_pipeline.py`, and `test_classifier.py`.
+Test suite — 33 tests across `test_smoke.py` (HTTP shape, auth, alerts shape/filters), `test_pipeline.py` (federal/state scoring + stale-sweep), and `test_classifier.py` (PAC classifier regressions including word-boundary, transport-vs-union, and tightened-keyword cases) — locks in the regressions that motivated the audits.
