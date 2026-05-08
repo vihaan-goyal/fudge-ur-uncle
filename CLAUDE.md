@@ -39,6 +39,7 @@ fudge-ur-uncle-full/
 │       ├── inspect_unknowns.py   # debug: lists top unclassified PACs
 │       ├── debug_fec.py          # debug: probes FEC responses during ingest
 │       ├── pipeline.py           # generates alerts from donations + votes
+│       ├── refresh.py            # cron entrypoint: federal+state ingest then pipeline
 │       ├── ingest_ftm.py         # pulls FollowTheMoney aggregates into DB (state side)
 │       ├── ingest_federal_votes.py # pulls Congress.gov floor-imminent bills into scheduled_votes
 │       ├── ingest_state_votes.py # pulls Legiscan engrossed bills into scheduled_votes
@@ -74,14 +75,27 @@ npm run dev
 
 Alerts pipeline (one-off, from repo root):
 ```
-python -m backend.db                              # init schema
-python -m backend.alerts.seed                     # seed legislators + scheduled votes (dev only)
-python -m backend.alerts.ingest_fec --state CT    # pull real FEC donations
-python -m backend.alerts.ingest_federal_votes     # pull floor-imminent federal bills (replaces seed votes)
-python -m backend.alerts.ingest_state_votes --state CT  # pull engrossed state bills
-python -m backend.alerts.pipeline                 # generate alerts
-python -m backend.alerts.reclassify --only-unknown   # re-tag PACs after editing pac_classifier.py
+python -m backend.db                              # init schema (first run only)
+python -m backend.alerts.seed                     # seed legislators + sample data (dev only)
+python -m backend.alerts.refresh                  # federal + state ingest + pipeline, in order
 ```
+`refresh` is the cron-friendly entrypoint: it chains `ingest_federal_votes` → `ingest_state_votes` (default `CT,NY,NJ,CA,MA`) → `pipeline`. Ingester failures are logged but don't block the pipeline; only a pipeline crash exits non-zero. Override with `--states CT`, `--skip-federal`, `--skip-state`, `--congress 119`.
+
+Individual commands (for ad-hoc / debug runs):
+```
+python -m backend.alerts.ingest_fec --state CT          # pull real FEC donations
+python -m backend.alerts.ingest_federal_votes           # pull floor-imminent federal bills
+python -m backend.alerts.ingest_state_votes --state CT  # pull engrossed state bills
+python -m backend.alerts.pipeline                       # generate alerts only
+python -m backend.alerts.reclassify --only-unknown      # re-tag PACs after editing pac_classifier.py
+```
+
+Scheduling `refresh` (pick your platform):
+- **Windows Task Scheduler**: `schtasks /create /tn "fuu-refresh" /tr "py -m backend.alerts.refresh" /sc hourly /sd today` (run from project root via the working-directory field).
+- **cron** (Linux/macOS): `0 * * * * cd /path/to/fudge-ur-uncle-full && python -m backend.alerts.refresh >> ~/fuu-refresh.log 2>&1`
+- **Claude Code `/schedule`**: hands off to a remote routine; useful if you don't have a server to host the cron.
+
+Don't run `seed.py` and `refresh` against the same DB — `refresh`'s ingest pass purges scheduled-vote rows that aren't in the live keepers list (including hand-curated seed rows). Pick one source.
 
 Tests (smoke):
 ```
