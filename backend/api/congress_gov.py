@@ -169,7 +169,10 @@ SAMPLE_BILLS = [
 # "became public law" / "presented to the President" are after the fact.
 _FLOOR_IMMINENT_PATTERN = re.compile(
     r"(placed on (the )?(senate legislative |union )?calendar|"
-    r"reported (by|to|with|original|favorably|without amendment)|"
+    # "Reported by ...", "Reported (Original) by ...", "Reported with amendment", etc.
+    # The optional parenthetical absorbs Congress.gov's "(Original)"/"(Amended)" tags
+    # that would otherwise break the next-word alternation.
+    r"reported(\s*\([^)]*\))?\s+(by|to|with|original|favorably|without amendment)|"
     r"passed (senate|house)( as amended)?|"
     r"received in the (senate|house)|"
     r"motion to proceed|"
