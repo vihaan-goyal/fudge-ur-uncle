@@ -32,12 +32,27 @@
         color: #e2e8f0;
         -webkit-font-smoothing: antialiased;
       }
-      /* When launched as a PWA (Add to Home Screen), kill the rubber-band /
-         pull-to-refresh behavior so it feels native instead of webby. The
-         media query keeps the browser experience untouched. */
+      /* When launched as a PWA (Add to Home Screen), make the app feel
+         native: lock the body to the viewport so it can't scroll, and
+         move scroll into #root. That kills the URL-bar-resize jitter,
+         pull-to-refresh, and the rubber-band effect on iOS — content
+         still scrolls inside #root with momentum. The media query keeps
+         the browser experience untouched. */
       @media (display-mode: standalone) {
         html, body {
+          height: 100%;
+          overflow: hidden;
           overscroll-behavior: none;
+        }
+        body {
+          position: fixed;
+          inset: 0;
+        }
+        #root {
+          height: 100%;
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
         }
       }
       ::-webkit-scrollbar { width: 8px; height: 8px; }
