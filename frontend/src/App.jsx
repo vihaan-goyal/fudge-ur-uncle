@@ -232,16 +232,28 @@ const Avatar = ({ name, size = 48, party }) => {
   );
 };
 
-const StatusBar = ({ offline }) => (
-  <div style={s.statusBar}>
-    <span>9:41</span>
-    <span style={{ fontSize: 9, letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 4 }}>
-      {offline && <span style={{ color: colors.yellow }}>OFFLINE</span>}
-      FUDGE UR UNCLE
-    </span>
-    <span>100%</span>
-  </div>
-);
+// True when the page is launched as an installed PWA (Add to Home Screen on
+// iOS, "Install app" on Android). The host OS already provides a status bar
+// and chrome in that mode, so the simulated "9:41 / FUDGE UR UNCLE / 100%"
+// bar plus the dev-only Backend Status panel become noise. We hide them.
+const isPWA = () =>
+  typeof window !== "undefined" &&
+  ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+    window.navigator.standalone === true);
+
+const StatusBar = ({ offline }) => {
+  if (isPWA()) return null;
+  return (
+    <div style={s.statusBar}>
+      <span>9:41</span>
+      <span style={{ fontSize: 9, letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 4 }}>
+        {offline && <span style={{ color: colors.yellow }}>OFFLINE</span>}
+        FUDGE UR UNCLE
+      </span>
+      <span>100%</span>
+    </div>
+  );
+};
 
 const BackButton = ({ onClick, label = "Back" }) => (
   <button style={s.backBtn} onClick={onClick}>
@@ -1813,33 +1825,35 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, onSignOut,
           </div>
         </div>
 
-        <div style={s.section}>
-          <div style={s.sectionTitle}>Backend Status</div>
-          <div style={s.card}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <Icon type="wifi" size={14} color={backendStatus?.ok ? colors.green : colors.red} />
-              <span style={{ fontSize: 13, fontWeight: 600 }}>
-                {backendStatus === null ? "Checking..." : backendStatus.ok ? "Connected" : "Offline"}
-              </span>
+        {!isPWA() && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>Backend Status</div>
+            <div style={s.card}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <Icon type="wifi" size={14} color={backendStatus?.ok ? colors.green : colors.red} />
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  {backendStatus === null ? "Checking..." : backendStatus.ok ? "Connected" : "Offline"}
+                </span>
+              </div>
+              {backendStatus?.ok && (
+                <div style={{ fontSize: 10, fontFamily: font, color: colors.textMuted }}>
+                  <div>API v{backendStatus.data.version}</div>
+                  <div style={{ marginTop: 4 }}>Keys configured:</div>
+                  {Object.entries(backendStatus.data.api_keys_configured || {}).map(([k, v]) => (
+                    <div key={k} style={{ marginLeft: 8 }}>
+                      {v ? "[x]" : "[ ]"} {k}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!backendStatus?.ok && backendStatus && (
+                <div style={{ fontSize: 10, color: colors.textMuted }}>
+                  Run the backend: <code style={{ fontFamily: font, color: colors.accent }}>python server.py</code>
+                </div>
+              )}
             </div>
-            {backendStatus?.ok && (
-              <div style={{ fontSize: 10, fontFamily: font, color: colors.textMuted }}>
-                <div>API v{backendStatus.data.version}</div>
-                <div style={{ marginTop: 4 }}>Keys configured:</div>
-                {Object.entries(backendStatus.data.api_keys_configured || {}).map(([k, v]) => (
-                  <div key={k} style={{ marginLeft: 8 }}>
-                    {v ? "[x]" : "[ ]"} {k}
-                  </div>
-                ))}
-              </div>
-            )}
-            {!backendStatus?.ok && backendStatus && (
-              <div style={{ fontSize: 10, color: colors.textMuted }}>
-                Run the backend: <code style={{ fontFamily: font, color: colors.accent }}>python server.py</code>
-              </div>
-            )}
           </div>
-        </div>
+        )}
 
         <div style={s.section}>
           <div style={s.sectionTitle}>About</div>
