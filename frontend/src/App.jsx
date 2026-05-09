@@ -41,6 +41,16 @@ const ISSUES = [
 const font = "'IBM Plex Mono', 'Courier New', monospace";
 const fontSans = "'IBM Plex Sans', 'Helvetica Neue', sans-serif";
 
+// True when the page is launched as an installed PWA (Add to Home Screen on
+// iOS, "Install app" on Android). The host OS already provides a status bar
+// and chrome in that mode, so the simulated "9:41 / FUDGE UR UNCLE / 100%"
+// bar plus the dev-only Backend Status panel become noise. We hide them.
+const isPWA = () =>
+  typeof window !== "undefined" &&
+  ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+    window.navigator.standalone === true);
+const _IS_PWA_AT_BOOT = isPWA();
+
 const colors = {
   // Light, airy base — like a crisp morning
   bg: "#fdfbf7",           // warm off-white (softer than pure white)
@@ -78,13 +88,23 @@ const colors = {
 // ============================================================
 
 const s = {
-  phone: {
-    width: 375, height: 812, borderRadius: 40,
-    border: `2px solid ${colors.border}`,
-    background: colors.bg, position: "relative",
-    overflow: "hidden", fontFamily: fontSans,
-    color: colors.text, fontSize: 13,
-  },
+  // Phone-shaped container. In a browser we draw the iPhone-16-ish frame
+  // (393×852, rounded, bordered) for the prototype look; when the app is
+  // launched as an installed PWA we drop the chrome and fill the viewport.
+  phone: _IS_PWA_AT_BOOT
+    ? {
+        width: "100vw", height: "100vh",
+        background: colors.bg, position: "relative",
+        overflow: "hidden", fontFamily: fontSans,
+        color: colors.text, fontSize: 13,
+      }
+    : {
+        width: 393, height: 852, borderRadius: 40,
+        border: `2px solid ${colors.border}`,
+        background: colors.bg, position: "relative",
+        overflow: "hidden", fontFamily: fontSans,
+        color: colors.text, fontSize: 13,
+      },
   statusBar: {
     height: 44, display: "flex", alignItems: "center",
     justifyContent: "space-between", padding: "0 24px",
@@ -231,15 +251,6 @@ const Avatar = ({ name, size = 48, party }) => {
     </div>
   );
 };
-
-// True when the page is launched as an installed PWA (Add to Home Screen on
-// iOS, "Install app" on Android). The host OS already provides a status bar
-// and chrome in that mode, so the simulated "9:41 / FUDGE UR UNCLE / 100%"
-// bar plus the dev-only Backend Status panel become noise. We hide them.
-const isPWA = () =>
-  typeof window !== "undefined" &&
-  ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
-    window.navigator.standalone === true);
 
 const StatusBar = ({ offline }) => {
   if (isPWA()) return null;
@@ -2619,6 +2630,14 @@ export default function App() {
     [SCREENS.STATE_REP_ALERTS, "State Alerts"],
     [SCREENS.SETTINGS, "Settings"],
   ];
+
+  // In PWA mode the app fills the viewport directly — no dev header, no
+  // screen-selector pills, no centered phone-frame container. The screen
+  // already styles itself for full-bleed via s.phone (which switches to
+  // 100vw/100vh in PWA mode).
+  if (_IS_PWA_AT_BOOT) {
+    return renderScreen();
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#060810", fontFamily: fontSans, color: colors.text }}>
