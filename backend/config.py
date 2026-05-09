@@ -31,5 +31,9 @@ LEGISLATORS_GITHUB_URL = (
 )
 
 # -- Server --
-HOST = "0.0.0.0"
-PORT = 8000
+# `python server.py` reads HOST/PORT from env so deploy hosts (Railway, Render,
+# Fly, etc.) that inject $PORT can be served without code changes. Falls back
+# to local dev defaults. Procfile-style hosts that exec `uvicorn server:app`
+# directly bypass these — both paths work.
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", "8000"))

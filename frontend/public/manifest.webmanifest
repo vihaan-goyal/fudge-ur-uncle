@@ -1,0 +1,25 @@
+{
+  "name": "Fudge Ur Uncle",
+  "short_name": "FuU",
+  "description": "Track campaign donations against upcoming votes. Get alerts when your representatives are about to act on bills tied to industries that fund them.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#060810",
+  "theme_color": "#e77a1b",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
