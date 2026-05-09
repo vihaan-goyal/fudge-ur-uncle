@@ -1,220 +1,160 @@
 # Fudge Ur Uncle
 
-Politician accountability app. Tracks federal legislators, follows campaign donations through PAC hops, correlates them with upcoming votes, and surfaces alerts. Built as a mobile-first React frontend on top of a FastAPI backend.
+Politician accountability app. Tracks federal + state legislators, follows campaign donations, correlates them with upcoming votes, and surfaces alerts. Mobile-first React frontend on FastAPI backend, deployed as a Vercel PWA + Procfile-based backend host.
 
 ## Repo Layout
 
 ```
-fudge-ur-uncle-full/
-├── backend/           # Python FastAPI server
-│   ├── server.py      # entrypoint - all HTTP endpoints live here
-│   ├── config.py      # API keys + settings (loads from .env)
-│   ├── db.py          # SQLite schema + connection helpers
-│   ├── data/whoboughtmyrep.sqlite   # local DB (gitignored)
-│   ├── api/           # external API wrappers
-│   │   ├── legislators.py        # unitedstates/congress-legislators (GitHub)
-│   │   ├── openfec.py            # OpenFEC campaign finance
-│   │   ├── congress_gov.py       # Congress.gov votes/bills
-│   │   ├── whoboughtmyrep.py     # industry-attributed funding
-│   │   ├── events.py             # Congress.gov committee meetings (two-phase fetch)
-│   │   ├── news.py               # NewsAPI.org - US news article search (primary)
-│   │   ├── guardian.py           # The Guardian API - news article search (fallback)
-│   │   ├── ai_summary.py         # OpenAI GPT-4o-mini - plain-English event summaries
-│   │   ├── stance_analysis.py    # OpenAI GPT-4o-mini - per-legislator policy stance analysis
-│   │   ├── promises.py           # scrapes rep's .gov site, GPT scores stated promises vs votes
-│   │   ├── ai_cache.py           # persistent SQLite cache for promises + stances + Legiscan (TTL 7d)
-│   │   ├── legiscan.py           # Legiscan API wrapper - state legislators, sponsored bills, roll calls
-│   │   ├── state_sites.py        # derives a Ballotpedia URL for state legislators (for promise scraping)
-│   │   ├── followthemoney.py     # FollowTheMoney/NIMP API - state campaign-finance aggregates
-│   │   ├── auth.py               # /api/auth/* - signup/login/me/logout, bcrypt + opaque tokens
-│   │   └── alerts_router.py      # /api/alerts/* endpoints
-│   ├── tests/         # pytest smoke tests (auth + alerts + filters)
-│   └── alerts/        # alert generation pipeline
-│       ├── config.py             # alert pipeline tuning (thresholds, lookback windows)
-│       ├── industry_map.py       # industry <-> vote category topic-match table
-│       ├── scoring.py            # signals-based alert scoring formula (T,V,D,R,A,N)
-│       ├── ingest_fec.py         # pulls FEC donations into DB
-│       ├── pac_classifier.py     # tags PACs by industry
-│       ├── reclassify.py         # re-runs classifier on existing donation rows
-│       ├── inspect_unknowns.py   # debug: lists top unclassified PACs
-│       ├── debug_fec.py          # debug: probes FEC responses during ingest
-│       ├── pipeline.py           # generates alerts from donations + votes
-│       ├── refresh.py            # cron entrypoint: federal+state ingest then pipeline
-│       ├── ingest_ftm.py         # pulls FollowTheMoney aggregates into DB (state side)
-│       ├── ingest_federal_votes.py # pulls Congress.gov floor-imminent bills into scheduled_votes
-│       ├── ingest_state_votes.py # pulls Legiscan engrossed bills into scheduled_votes
-│       ├── state_categories.py   # bill title -> alert category (keyword regex)
-│       ├── catcode_map.py        # OpenSecrets/CRP Catcode -> our industry name
-│       └── seed.py               # seed data for dev
-└── frontend/          # React + Vite app
-    ├── package.json
-    ├── vite.config.js            # proxies /api -> localhost:8000
-    └── src/
-        ├── main.jsx              # entry
-        ├── api.js                # fetch wrapper + endpoint methods
-        └── App.jsx               # all 23 screens + routing (single file)
+backend/
+  server.py          # FastAPI entrypoint, all HTTP endpoints
+  config.py          # API keys + HOST/PORT from .env
+  db.py              # SQLite schema, migrations, connection helper
+  Procfile           # web: uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}
+  data/whoboughtmyrep.sqlite   # local DB (gitignored)
+  api/               # external API wrappers (one module per upstream)
+    legislators.py openfec.py congress_gov.py whoboughtmyrep.py
+    events.py news.py guardian.py ai_summary.py
+    stance_analysis.py promises.py ai_cache.py
+    legiscan.py state_sites.py followthemoney.py ftm_directory.py
+    auth.py alerts_router.py
+  alerts/            # alert generation pipeline
+    config.py industry_map.py scoring.py catcode_map.py
+    ingest_fec.py ingest_ftm.py ingest_federal_votes.py ingest_state_votes.py
+    pac_classifier.py reclassify.py state_categories.py
+    pipeline.py refresh.py seed.py
+  data/ftm_eids.csv  # curated (state, chamber, name, eid) directory
+  tests/             # pytest smoke + pipeline + classifier
+frontend/
+  vite.config.js     # proxies /api -> localhost:8000
+  vercel.json        # SPA rewrites, no-cache on /sw.js
+  public/            # manifest.webmanifest, sw.js, icons
+  src/
+    main.jsx api.js
+    App.jsx          # all 23 screens + routing in one file (deliberate)
 ```
 
 ## Run Commands
 
-Backend (terminal 1, from repo root):
+From project root (imports require it):
+
 ```
-cd backend
-pip install -r requirements.txt
-python server.py
-# -> http://localhost:8000   (docs at /docs)
+# Backend
+cd backend && pip install -r requirements.txt && python server.py     # :8000
+# Frontend
+cd frontend && npm install && npm run dev                              # :5173
+# Pipeline (one-off)
+python -m backend.db                       # init schema, first run only
+python -m backend.alerts.refresh           # cron entrypoint: federal+state ingest then pipeline
+# Tests
+cd backend && python -m pytest tests/ -v
 ```
 
-Frontend (terminal 2, from repo root):
-```
-cd frontend
-npm install
-npm run dev
-# -> http://localhost:5173
-```
+`refresh` chains `ingest_federal_votes` → `ingest_state_votes` (default `CT,NY,NJ,CA,MA`) → `pipeline`. Flags: `--states CT`, `--skip-federal`, `--skip-state`, `--congress 119`. Ingester failures log but don't block; only a pipeline crash exits non-zero.
 
-Alerts pipeline (one-off, from repo root):
-```
-python -m backend.db                              # init schema (first run only)
-python -m backend.alerts.seed                     # seed legislators + sample data (dev only)
-python -m backend.alerts.refresh                  # federal + state ingest + pipeline, in order
-```
-`refresh` is the cron-friendly entrypoint: it chains `ingest_federal_votes` → `ingest_state_votes` (default `CT,NY,NJ,CA,MA`) → `pipeline`. Ingester failures are logged but don't block the pipeline; only a pipeline crash exits non-zero. Override with `--states CT`, `--skip-federal`, `--skip-state`, `--congress 119`.
+Don't run `seed.py` and `refresh` against the same DB — `refresh`'s ingest purges scheduled-vote rows not in the live keepers list, including seeded ones. Pick one source.
 
-Individual commands (for ad-hoc / debug runs):
-```
-python -m backend.alerts.ingest_fec --state CT          # pull real FEC donations
-python -m backend.alerts.ingest_federal_votes           # pull floor-imminent federal bills
-python -m backend.alerts.ingest_state_votes --state CT  # pull engrossed state bills
-python -m backend.alerts.pipeline                       # generate alerts only
-python -m backend.alerts.reclassify --only-unknown      # re-tag PACs after editing pac_classifier.py
-```
-
-Scheduling `refresh` (pick your platform):
-- **Windows Task Scheduler**: `schtasks /create /tn "fuu-refresh" /tr "py -m backend.alerts.refresh" /sc hourly /sd today` (run from project root via the working-directory field).
-- **cron** (Linux/macOS): `0 * * * * cd /path/to/fudge-ur-uncle-full && python -m backend.alerts.refresh >> ~/fuu-refresh.log 2>&1`
-- **Claude Code `/schedule`**: hands off to a remote routine; useful if you don't have a server to host the cron.
-
-Don't run `seed.py` and `refresh` against the same DB — `refresh`'s ingest pass purges scheduled-vote rows that aren't in the live keepers list (including hand-curated seed rows). Pick one source.
-
-Tests (smoke):
-```
-cd backend
-python -m pytest tests/ -v
-```
-Tests use `FUU_DB_PATH` (set automatically by the conftest fixture) to point the app at a tmp SQLite file so they don't clobber dev data. Both `db.py` and `api/alerts_router.py` honor this env var; nothing else needs to change to add new test suites.
+Tests use `FUU_DB_PATH` (set by conftest) so they don't clobber dev data.
 
 ## Environment
 
-`backend/.env` should contain (all optional - missing keys fall back to sample data or DEMO_KEY):
-- `DATA_GOV_API_KEY` - covers Congress.gov AND OpenFEC. Get one at api.data.gov/signup
-- `NEWSAPI_KEY` - newsapi.org (free tier: 100 req/day). Primary news source for event detail screens. Aggregates AP, Reuters, Politico, The Hill, etc.
-- `OPENAI_API_KEY` - openai.com. Powers AI plain-English summaries on event detail screens (uses gpt-4o-mini).
-- `GUARDIAN_API_KEY` - The Guardian Open Platform. Free at open-platform.theguardian.com. Fallback news source if NewsAPI returns nothing.
-- `WHOBOUGHTMYREP_API_KEY` - whoboughtmyrep.com/developers
-- `LEGISCAN_API_KEY` - legiscan.com. Powers `/api/state-reps/*`. Free tier is 30k req/month + 1 req/sec; results are cached in `ai_cache` (7d for rosters, 24h for profiles) to stay well under the limit.
-- `FTM_API_KEY` - followthemoney.org (NIMP). Powers state-side `ingest_ftm.py`. Free tier; aggregates are cached in `ai_cache` (24h for industry breakdowns, 7d for eid lookups). Without a key, the ingester falls back to a small CT sample dict so the pipeline can be exercised end-to-end.
+`backend/.env` (all optional — missing keys fall back to sample data or DEMO_KEY):
 
-The health endpoint `GET /` reports which keys are configured.
+- `DATA_GOV_API_KEY` — Congress.gov + OpenFEC (api.data.gov/signup)
+- `OPENAI_API_KEY` — gpt-4o-mini for stances, promises, event summaries
+- `NEWSAPI_KEY` — primary news source for event detail (100 req/day free)
+- `GUARDIAN_API_KEY` — fallback news source
+- `WHOBOUGHTMYREP_API_KEY` — industry-attributed funding
+- `LEGISCAN_API_KEY` — state legislators (30k/mo + 1 req/sec, cached in `ai_cache`)
+- `FTM_API_KEY` — FollowTheMoney/NIMP state campaign finance
 
-## Architecture Notes
+`GET /` reports configured keys.
 
-**Backend is a thin aggregator.** External APIs are wrapped in `backend/api/*.py`. `server.py` composes them into the unified shapes the frontend needs. Only the alerts subsystem persists to SQLite; everything else is fetched live.
+## Architecture
 
-**Frontend has graceful fallback baked in.** Every screen wraps API calls in a try/catch. If the backend is unreachable, it falls back to embedded sample data and shows an "OFFLINE" badge in the status bar. Do not remove this pattern - it's how the app stays demoable without a backend running.
+**Backend is a thin aggregator.** External APIs wrapped in `backend/api/*.py`; `server.py` composes them. Only the alerts subsystem persists to SQLite — everything else is fetched live with in-process caching.
 
-**Dashboard uses lazy loading.** `/api/reps/by-state/{state}` returns reps with `funding: null`, then the frontend fires per-rep `/api/reps/{id}/funding-lite` calls. This keeps the initial render fast.
+**Frontend has graceful fallback.** Every screen wraps API calls in try/catch and falls back to embedded sample data with an "OFFLINE" badge. Don't remove — it's how the app stays demoable. `apiRequest` auto-clears localStorage on 401 (only when a token was actually sent), preventing dead-token retry loops.
 
-**The profile endpoint is the workhorse.** `/api/profile/{bioguide_id}` returns bio + funding + votes in one shot and powers most of the per-politician screens.
+**Single-file frontend.** `App.jsx` holds all 23 screens. Inline `style={s.foo}` against a shared `s` map. Screen routing via `currentScreen` state + `SCREENS` enum, not React Router. Don't split casually.
 
-**Events use a two-phase fetch.** `GET /api/events` first fetches the Congress.gov `/v3/committee-meeting` list (summary stubs with URLs only), then fans out with `asyncio.gather` to fetch up to 10 detail URLs in parallel. The list endpoint does not return title/date/location — only the detail endpoint does. Results are cached in-process for 5 minutes. See `backend/api/events.py`.
+**Profile endpoint is the workhorse.** `/api/profile/{bioguide_id}` returns bio + funding + votes in one shot. Dashboard uses lazy loading: `/api/reps/by-state/{state}` returns reps with `funding: null`, frontend fans out per-rep `/api/reps/{id}/funding-lite` calls.
 
-**Event detail screen fetches news and AI summary lazily.** Two on-demand calls fire when the user opens an event detail:
-- `GET /api/events/article?q={title}` — searches NewsAPI.org first (primary), falls back to Guardian if no results. Requires `NEWSAPI_KEY`; returns `{"article": null}` if both keys are missing.
-- `GET /api/events/summary?title=...&chamber=...&meeting_type=...&committee=...&bills=...` — calls OpenAI GPT-4o-mini to generate a 2-sentence plain-English citizen briefing. Requires `OPENAI_API_KEY`; returns `{"summary": null}` if missing. Results are cached in-process by event title to avoid repeated API calls.
+**Events use a two-phase fetch.** `/api/events` fetches the Congress.gov committee-meeting list (URL stubs only), then `asyncio.gather`s up to 10 detail URLs in parallel. Title/date/location only come from detail. 5-min in-process cache. Event detail lazily fetches news (`/article` — NewsAPI primary, Guardian fallback) and AI summary (`/summary` — gpt-4o-mini, 2-sentence brief). `news.py`/`guardian.py` strip congressional boilerplate to build focused queries.
 
-**News query extraction** (`backend/api/news.py` and `guardian.py`) strips congressional boilerplate from hearing titles to build focused search queries — pulls topic after `:` or `on`, extracts named acts from markups, appends "Congress" if no political signal word present.
+**AI features (stances, promises) require `OPENAI_API_KEY`.** Stances pull recent votes + sponsored bills, GPT identifies 4–6 policy areas with CONSISTENT/INCONSISTENT/MIXED/PENDING scores. Promises scrape the rep's `.gov` site (homepage + `/issues`, `/priorities`, `/about`, parallel `asyncio.gather`, 14k char cap), then GPT extracts stated positions and labels each KEPT/BROKEN/PARTIAL/UNCLEAR. Returns `{scraped: false}` if scraping yielded <400 chars (common for JS-rendered sites). Substantive-vote filtering shared via `is_substantive_vote()` in `congress_gov.py`.
 
-**Stance analysis is AI-derived from real votes.** `GET /api/profile/{bioguide_id}/stances` pulls the legislator's recent votes + sponsored bills and asks GPT-4o-mini to identify 4-6 policy areas with a `topic`/`stance`/`evidence`/`score` shape (CONSISTENT, INCONSISTENT, MIXED, PENDING). Requires `OPENAI_API_KEY`; returns `{"stances": null, "ai_available": false}` if missing. Cached in-process per bioguide_id. See `backend/api/stance_analysis.py`.
+**Unified search.** `/api/search/unified?q=...&state=CT` fans out to federal (GitHub roster) and state (cached Legiscan roster) in parallel; results tagged `level: "federal" | "state"` so the frontend routes to the right profile screen.
 
-**Promise scoring scrapes the rep's official site, then grades vs. votes.** `GET /api/profile/{bioguide_id}/promises` runs a two-phase pipeline in `backend/api/promises.py`: (1) fetch the homepage and common issue paths (`/issues`, `/priorities`, `/about`, etc.) in parallel with `asyncio.gather`, regex-strip HTML to plain text, cap at 14k chars; (2) send that text plus the legislator's substantive votes and sponsored bills to GPT-4o-mini, which extracts 4–6 stated positions and labels each KEPT / BROKEN / PARTIAL / UNCLEAR with strict evidence rules (direct subject match only, no hedge words). Requires `OPENAI_API_KEY`; returns `{"promises": null, "scraped": false}` if the key is missing or scraping yielded <400 chars (common when sites are JS-rendered). Cached in-process per bioguide_id. Substantive-vote filtering is shared with stance_analysis via `is_substantive_vote()` / `format_vote_lines()` / `format_bill_lines()` in `backend/api/congress_gov.py`.
+**State legislators come from Legiscan.** Two-step roster fetch (`getSessionList` → newest → `getSessionPeople`), profile via `getPerson` + `getSponsoredList`. State deep-dive endpoints (`/votes`, `/stances`, `/promises`) mirror federal; promises uses Ballotpedia URLs from `state_sites.derive_website()`. Votes endpoint only finds rolls on bills the rep *sponsored* — backbenchers look thin.
+- **Legiscan gotcha:** `getSponsoredList` returns flat `sponsoredbills.bills` with `session_id` per item; `sponsoredbills.sessions` is metadata, not nested bills. Sort by `session_id` desc.
+- **Rate-limit gotcha:** `_call` serializes through a process-wide lock with 1.05s spacing so `asyncio.gather` fan-outs stay under 1 req/sec free-tier limit. Cold-cache votes fetches run ~16s; don't remove without a paid-tier flag.
+- **Chamber gotcha:** Legiscan normalizes any lower-chamber `role` to `chamber: "House"` even in Assembly states (NY/NJ/CA), so CSV rows must use "House", not "Assembly".
 
-**State legislators come from Legiscan.** `GET /api/state-reps/by-state/{state}` returns the current-session roster (chamber, district, party, `people_id`). `GET /api/state-reps/{people_id}` returns the profile plus up to 15 most recent sponsored bills. `backend/api/legiscan.py` does a two-step fetch (`getSessionList` → newest session → `getSessionPeople`) for rosters, and `getPerson` + `getSponsoredList` for profiles. All results go through `ai_cache` (7d for rosters, 24h for profiles, 24h for votes) because the free tier caps at 30k req/month. Falls back to `SAMPLE_STATE_LEGISLATORS` (CT only) if the key is missing or the upstream fails. **Legiscan gotcha:** `getSponsoredList` returns `bills` as a flat list at `sponsoredbills.bills` with a `session_id` on each item; `sponsoredbills.sessions` is just session metadata, *not* nested bills. Sort by `session_id` desc to get newest-first. **Rate-limit gotcha:** `_call` serializes through a process-wide `_rate_lock` + `_last_call_at` timestamp with 1.05s spacing so `asyncio.gather`-style fan-outs (notably `get_legislator_votes`'s 8-bill probe) stay under the documented 1-req/sec free-tier limit. Cold-cache votes fetches run ~16s as a result; this is the price of not getting 429'd. Don't try to "optimize" by removing the lock without first pinning it behind a paid-tier feature flag.
+**AI + Legiscan results cached in SQLite (`ai_cache.py`).** Keys are namespaced: `promises:{id}`, `stances:{id}`, `promises:state:{pid}`, `stances:state:{pid}`, `legiscan:people:{state}` (7d), `legiscan:profile:{pid}` (24h), `legiscan:votes:{pid}` (24h). Table created lazily; surviving server restarts. **Cache-bust gotcha:** poisoned entries stick for the TTL — wipe rows from `ai_cache` directly when fixing parsers.
 
-**State-rep deep-dive endpoints mirror the federal flow.** `GET /api/state-reps/{people_id}/votes` returns recent roll-call votes by fetching bill detail for the rep's most recent sponsored bills (capped at 8) and pulling the latest roll call from each (`getBill` → `getRollCall`). `GET /api/state-reps/{people_id}/stances` reuses `stance_analysis.py` with a `stances:state:{people_id}` cache key. `GET /api/state-reps/{people_id}/promises` reuses `promises.py` with a `promises:state:{people_id}` cache key, where the website URL is derived by `state_sites.derive_website()` (defaults to Ballotpedia URL pattern, with per-state overrides possible). Note: the votes endpoint only finds rolls on bills the rep *sponsored*; backbench reps with sparse sponsorship will see thin results.
+**Alert scoring formula.** `scoring.py`: `S = (T*V) * (αD + βR + γA) * (1 + δN)` where T=topic match, V=vote proximity, D=donation magnitude, R=recency, A=anomaly z-score, N=news salience. `S>0.3` → alert, `S>0.6` → urgent. All signals stored on the alert for explainability.
 
-**Search is unified across federal + state.** `GET /api/search/unified?q=...&state=CT` fans out to `legislators.search_by_name` (federal, GitHub data) and `legiscan.search_state_legislators` (state, filtered against the cached roster) in parallel via `asyncio.gather`. Each result is tagged with `level: "federal" | "state"` so the frontend `SearchScreen` can route clicks to the correct profile screen (federal → `bioguide_id`, state → `people_id`). `state` param is optional; when omitted only federal results are returned.
+**Alerts schema is polymorphic.** `donations`/`alerts`/`industry_baselines` key on `(actor_type, actor_id)` — `'federal'` (bioguide) or `'state'` (Legiscan people_id). `scheduled_votes` keys `(jurisdiction, state_code, bill_number)` so a CT bill and an NJ bill with the same number don't collide. Migrations in `db._migrate()` handle legacy DBs in place (table-swap idiom for PK/UNIQUE changes, runs *before* `executescript(SCHEMA)`). The `/api/alerts` endpoint accepts both `actor_type`/`actor_id` and legacy `bioguide_id` (auto-mapped to federal); responses include both fields.
 
-**AI results are cached in SQLite, not just in-process.** Promise scoring and stance analysis both go through `backend/api/ai_cache.py`, which stores results in an `ai_cache` table (`cache_key`, `value_json`, `expires_at`) with a default 7-day TTL. Keys are namespaced: `promises:{bioguide_id}`, `stances:{bioguide_id}`, `promises:state:{people_id}`, `stances:state:{people_id}`, `legiscan:people:{state}`, `legiscan:profile:{people_id}`, `legiscan:votes:{people_id}`. The table is created lazily on first access, so the cache works even if `python -m backend.db` hasn't been run. A server restart no longer discards results, and repeat visits don't re-hit OpenAI. Rationale: each call is 30-90s and costs money. **Cache-bust gotcha:** if a parser bug poisons cached entries with empty data, the bad results stick for the TTL — wipe the relevant rows from `ai_cache` directly when fixing parsers.
+**External IDs in a join table.** `external_ids(actor_type, actor_id, source, external_id, confidence, matched_at)` maps actors to FTM/OpenSecrets/FEC IDs. Adding a new data source doesn't churn the schema.
 
-**Alert scoring is a documented formula, not a heuristic.** `backend/alerts/scoring.py` computes `S = (T*V) * (alpha*D + beta*R + gamma*A) * (1 + delta*N)` where T=topic match, V=vote proximity, D=donation magnitude, R=recency, A=anomaly z-score, N=news salience. Topic match uses the table in `industry_map.py`. Thresholds: S>0.3 → alert, S>0.6 → urgent. All intermediate signals are stored on the alert for explainability.
+**Alerts carry `created_at` + `updated_at`.** `updated_at` is bumped on each pipeline re-confirmation so re-confirmed alerts read as fresh. Router compares against `datetime.now(timezone.utc).replace(tzinfo=None)` because SQLite's `CURRENT_TIMESTAMP` is UTC-naive — using `datetime.now()` skews relative-time strings by the local-UTC offset.
 
-**Alerts carry both `created_at` and `updated_at`.** `created_at` is the first time a (donation, vote) pair qualified as an alert; `updated_at` is the last time the pipeline re-confirmed it via `_upsert_alert`. The `/api/alerts` endpoint computes the "X mins ago" string from `updated_at` (with `created_at` as a fallback for legacy rows), so re-confirmed alerts read as fresh instead of aging into "1 day ago" forever. Migration in `db._migrate()` adds the column to legacy DBs and backfills it from `created_at`. The router compares against `datetime.now(timezone.utc).replace(tzinfo=None)` because SQLite's `CURRENT_TIMESTAMP` is UTC-naive — using `datetime.now()` would skew the relative-time string by the local-UTC offset (e.g. EDT users would see "5 hours ago" on a row written 30 seconds back).
+**State donations come from FTM lifetime aggregates, not itemized rows.** `ingest_ftm.py` per-actor loop: cached Legiscan roster → resolve eid → fetch industry breakdown via `dataset=contributions&gro=d-cci&c-t-eid=<EID>` → translate via `catcode_map.industry_for_ftm_name` (drops `_ignore` buckets) → write one `donations` row per industry tagged `actor_type='state'`. `donation_date = today` because FTM grouped aggregates are lifetime-only (year filters return 0 records when combined with grouping). Keeps rows inside the 180-day lookback. Dedup key: `FTM:{eid}:lifetime:{industry_slug}`.
+- **Connection gotcha:** holding `with connect()` across `await`s starves `ai_cache` writes and triggers SQLite "database is locked." Open per-actor.
+- **EID lookup uses an offline directory.** Live `_live_find_eid` is a stub — FTM's candidates-dataset state filter is undocumented and none of `s-y-st`, `s`, `c-r-s`, `c-t-s`, `c-r-osj` honor it empirically. Workaround: `backend/data/ftm_eids.csv` (loaded by `ftm_directory.py`), curated `(state, chamber, name, eid)` rows consulted before live and before `SAMPLE_FTM_EIDS`. Fuzzy match (SequenceMatcher ≥ 0.78) with chamber as disambiguator. Adding mappings is manual: look up on followthemoney.org, copy eid from URL, append CSV row. Currently 34 verified eids across CT/NY/NJ/CA/MA.
+- **Cache pollution gotcha:** test runs that misconfigure `db.DB_PATH` will write `[]` sentinels to production `ai_cache`. If FTM matches stop returning, wipe rows where `cache_key LIKE 'ftm:%'`.
+- **Quota gotcha:** FTM free tier returns HTTP 200 with `{"error": "...account has reached its free API call limit..."}`. `_ftm_get` raises `FTMUpstreamError`; `get_industry_aggregates` catches it, returns sample data for *just that call*, and does NOT cache. So a transient quota hiccup doesn't pin demo numbers under the live key for 24h.
 
-**Alerts schema is polymorphic across federal and state actors.** `donations`, `alerts`, and `industry_baselines` all key on `(actor_type, actor_id)` instead of `bioguide_id` — `actor_type` is `'federal'` (with `actor_id` = bioguide ID) or `'state'` (with `actor_id` = Legiscan `people_id`). `scheduled_votes` similarly carries `(jurisdiction, state_code)` with `UNIQUE (jurisdiction, state_code, bill_number)` so a CT bill and an NJ bill with the same number don't collide. Legacy DBs are migrated in place by `db._migrate()`: simple column changes use `ALTER TABLE RENAME COLUMN` + `ADD COLUMN`; the PK / UNIQUE-constraint changes on `industry_baselines` and `scheduled_votes` use the SQLite table-swap idiom with FK enforcement temporarily off. Migration runs *before* `executescript(SCHEMA)` because the new schema's indexes reference columns that don't exist on legacy tables yet. The `/api/alerts` endpoint accepts both the new `actor_type`/`actor_id` query params and the legacy `bioguide_id` (which auto-maps to `actor_type=federal`); response objects include both for backward compatibility, with `bioguide_id` populated only when `actor_type='federal'`.
+**Upcoming-vote feeds use bill-status as a proxy** (no clean upstream calendar exists for either jurisdiction).
+- State (`ingest_state_votes.py`): Legiscan masterlist filtered to `STATUS_ENGROSSED`. **Title-only categorization** via `state_categories.py` keyword regex (13 categories: environment, healthcare, economy, defense, infrastructure, technology, labor, agriculture, housing, education, immigration, firearms, elections). Description fallback was removed — long policy summaries produced too many incidental matches. Uncategorized bills (~25%) silently dropped at ingest. No per-bill `getBill` (would burn the 30k/mo quota). Masterlist cached 6h.
+- Federal (`ingest_federal_votes.py`): `/v3/bill/{congress}` sorted `updateDate+desc`, paginated 4×250, filtered to `latestAction.text` matching `_FLOOR_IMMINENT_PATTERN` in `congress_gov.py`. Resolution-type bills (`hres`/`sres`/etc.) dropped as symbolic. Reuses the same keyword categorizer — categories are jurisdiction-agnostic. Federal residue is mostly foreign-policy and acronym-only titles (SPUR/SERV/etc.) where the title carries no topical signal. No caching — meant to run on cron, not ad hoc.
+- Both: `scheduled_date = status_date + DEFAULT_VOTE_LEAD_DAYS` (14d). Stalled bills with past projected dates get bumped to today so V doesn't go to zero.
+- **Stale-row purge** at end of each ingest: deletes `scheduled_votes` rows (and their downstream `alerts`) whose `bill_number` isn't in the current categorized set. Gated on `keepers` being non-empty so a quota error can't nuke the table. Federal ingest *replaces* `seed.py` — re-seeding after an ingest will get re-purged on the next run.
 
-**External IDs are stored in a separate join table, not on actor rows.** `external_ids(actor_type, actor_id, source, external_id, confidence, matched_at)` maps an actor (federal bioguide ID or state Legiscan people_id) to its identifier in third-party datasets (FTM eid, OpenSecrets candidate ID, FEC candidate ID, etc.). Primary key is `(actor_type, actor_id, source)`; reverse-lookup index on `(source, external_id)`. This keeps the polymorphic `donations`/`alerts` schema free of per-source columns and means adding a new data source (OpenStates, OpenSecrets, etc.) doesn't require schema churn. Confidence captures fuzzy-match quality so downstream code can decide how much to trust an attribution.
+**Pipeline runs federal and state independently.** `pipeline.py` calls `_run_for_jurisdiction` once per actor_type so a federal rep's donations never pair with state bills. Baselines computed in one pass with `GROUP BY actor_type`.
 
-**State donations come from FollowTheMoney aggregates, not itemized rows.** `backend/api/followthemoney.py` is the FTM/NIMP client; `backend/alerts/ingest_ftm.py` is the orchestrator. Pipeline per state legislator: pull the cached Legiscan roster → resolve each rep's FTM eid via fuzzy name match (`SequenceMatcher` ratio ≥ 0.78, stored in `external_ids` for reuse) → fetch lifetime industry breakdown via `dataset=contributions&gro=d-cci&c-t-eid=<EID>` → translate FTM `General_Industry` string → our industry via `catcode_map.industry_for_ftm_name` (drops `_ignore` buckets like "Candidate Contributions"/"Uncoded"/"Public Subsidy"/"Retired") → write a `donations` row tagged `actor_type='state'` for each kept industry bucket. Each FTM bucket becomes one donation row with `pac_name` = "{General_Industry} (FTM lifetime aggregate, N records)" and `donation_date` = today (FTM grouped-aggregates are lifetime-only — `y=`/`f-y=` filters return 0 records when combined with grouping, so per-cycle breakdown isn't available; today keeps rows inside the 180-day lookback). Dedup uses `fec_filing_id = "FTM:{eid}:lifetime:{industry_slug}"`. Connection lifetime is per-actor — holding `with connect()` across the loop's `await`s starves `ai_cache` writes and triggers SQLite "database is locked" errors. Committee pseudo-entries from the Legiscan roster (rows like "Judiciary Committee" with empty chamber) are filtered out before any FTM lookup. The ingester falls back to `SAMPLE_FTM_EIDS` + `SAMPLE_FTM_AGGREGATES` (CT-only, two reps; sample data is keyed by FTM industry name to match live shape) when `FTM_API_KEY` is missing or returns errors. **EID lookup uses an offline directory CSV.** Live `_live_find_eid` is still a stub (FTM's candidates-dataset state filter is undocumented — none of `s-y-st`, `s`, `c-r-s`, `c-t-s`, `c-r-osj` honor a state filter empirically). The pragmatic workaround is `backend/data/ftm_eids.csv` (loaded by `backend/api/ftm_directory.py`): a curated `(state, chamber, name, eid)` table that `find_candidate_eid` consults *before* the live API and *before* `SAMPLE_FTM_EIDS`. Fuzzy name matching uses the same SequenceMatcher ratio + 0.78 threshold as the rest of the wrapper, with chamber as a disambiguator (restricts to same-chamber rows when at least one exists). Adding new mappings is manual: look up the rep on followthemoney.org, copy the eid from the entity-details URL, append a row to the CSV. Seed contains 34 verified real eids across 5 states: CT (19 — leadership + committee chairs + minority side), NY (5 — Stewart-Cousins, Ortt, Heastie, Barclay, Peoples-Stokes), NJ (4 — Scutari, Bucco, Coughlin, DiMaio), CA (4 — McGuire, Brian Jones, Rivas, Gallagher), MA (2 — Mariano, Tarr; Spilka and Brad Jones don't surface on FTM). `SAMPLE_FTM_EIDS` and `SAMPLE_FTM_AGGREGATES` are keyed by real eids so the no-key demo path produces donation rows for Looney + Ritter; the other 32 resolve to real eids but return empty aggregates without an FTM key (live data lights up once the key is reactivated). **Chamber gotcha:** Legiscan normalizes any lower-chamber `role` ("Rep"/"Representative") to `chamber: "House"` even in Assembly states (NY/NJ/CA), so CSV rows for Assembly members must use "House", not "Assembly". **Cache pollution gotcha:** test runs that misconfigure `db.DB_PATH` will write `[]` (no-match) sentinels to the production `ai_cache` table; if FTM matches mysteriously stop returning, wipe rows where `cache_key LIKE 'ftm:%'`. **Free-tier quota gotcha:** FTM's free tier returns HTTP 200 with `{"error": "This account has reached its free API call limit pending Institute review..."}` when exhausted (not a 4xx). `_ftm_get` detects this and raises `FTMUpstreamError` (rather than swallowing it as `{}`) so callers can distinguish "real empty" from "upstream wedged." `get_industry_aggregates` catches it, returns sample data for *just that call*, and does NOT cache the result — so a transient quota hiccup no longer pins demo numbers under the live cache key for 24 hours.
+**Stale alert sweep.** After scoring, `_sweep_stale_alerts` deletes any non-dismissed alert whose `(donation_id, vote_id)` pair wasn't refreshed this run. Covers donation aged out, vote already happened, or score recalibrated below threshold. **Dismissed alerts are kept** so user-suppressed history doesn't resurface. Per-`actor_type` scope.
 
-**State "upcoming vote" feed uses bill-status as a proxy.** State legislatures don't publish a clean scheduled-vote calendar, so `backend/alerts/ingest_state_votes.py` reads the Legiscan masterlist for the current session, filters to `STATUS_ENGROSSED` (passed one chamber, headed to the other — the most reliable "imminent floor vote" signal), and writes those bills to `scheduled_votes` tagged `jurisdiction='state'`. Bill titles are mapped to alert categories by keyword regex in `backend/alerts/state_categories.py` — 13 categories total: `environment`, `healthcare`, `economy`, `defense`, `infrastructure`, `technology`, `labor`, `agriculture`, `housing`, `education`, `immigration`, `firearms`, `elections` (no per-bill Legiscan call — `getBill` would burn the 30k/month free tier on a masterlist with hundreds of bills). **Categorization is title-only** — the description-fallback path was removed because Legiscan's `description` is a long policy summary that produces too many incidental matches (a building-code bill got tagged `education` because its description happened to mention schools). Bills whose title matches no category are silently dropped at ingest. After the May 2026 keyword expansion (verified against a 73-bill CT engrossed list) ~25% remain uncategorized — the bulk are procedural (land conveyances, claims commissioner resolutions, FOI-act revisions, ethics-code revisions) or criminal-law topics outside the 13 alert categories, neither of which produces useful donation/vote correlations. Keyword regressions are pinned in `tests/test_state_categories.py`; before adding new patterns, re-run the live probe against `legiscan.get_active_bills` to confirm what's actually leaking through. **Stale-row purge:** at the end of each ingest the script also deletes `scheduled_votes` rows (and their downstream `alerts`) whose `bill_number` is no longer in the current categorized set — bills that fell off the masterlist (passed/failed) or were re-categorized to None won't linger generating phantom alerts. `scheduled_date` is `status_date + DEFAULT_VOTE_LEAD_DAYS` (14 days by default, the typical engrossment-to-receiving-chamber-vote interval). Stale bills whose projected date is already past get bumped to `today` so V doesn't go to zero — engrossed bills are still pending business until they pass or fail. The masterlist is cached in `ai_cache` for 6 hours.
+**State alert calibration.** Without it, every state alert lands above urgent because (1) FTM donations are lifetime-stamped today so R saturates to 1.0; (2) state donation pools are too sparse to clear `BASELINE_MIN_SAMPLES=3`, so A defaults to 0.5. Pipeline passes state-only `proxy_donation_r=0.4` (career-flat) and `no_baseline_a=0.0` (honest "no signal") into `score_alert`. Federal is unchanged. Env-overridable: `ALERTS_PROXY_DONATION_R`, `ALERTS_NO_BASELINE_A_HONEST`.
 
-**Federal "upcoming vote" feed uses the same bill-status proxy.** Congress.gov's `/v3/` API exposes no upcoming-floor-vote endpoint either, so `backend/alerts/ingest_federal_votes.py` mirrors the state ingester: pull recently-updated bills from `/v3/bill/{congress}` (sorted `updateDate+desc`, paginated up to 4×250), filter to those whose `latestAction.text` matches `_FLOOR_IMMINENT_PATTERN` in `congress_gov.py` (committee-reported, calendar-placed, passed-one-chamber, motion-to-proceed, etc. — see the regex for the full list), drop resolution-type bills (`hres`/`sres`/`hconres`/`sconres`) since they're symbolic, and write the rest to `scheduled_votes` tagged `jurisdiction='federal', state_code=NULL`. Categorization reuses the same `state_categories.categorize` keyword table — the 13 alert categories are jurisdiction-agnostic. `scheduled_date = status_date + DEFAULT_VOTE_LEAD_DAYS` with the same bump-to-today behavior for stalled bills. **Stale-row purge:** identical to the state side, gated on `keepers` being non-empty so a quota error or upstream wedge can't nuke the whole table. **Replaces seed.py for federal demo data:** the purge will delete seed-written rows once a real ingest has populated the table — pick one source or the other, not both. (Re-running `python -m backend.alerts.seed` after an ingest will reseed the hand-curated rows alongside the live ones, but the next ingest will purge them again.) Typical run on CT-time live API (May 2026, congress 119): 37 floor-imminent bills returned, ~17 categorize cleanly (~55% uncategorized vs. ~25% on the state side; the federal residue is largely foreign-policy bills and acronym-only titles like SPUR/SERV/GORAC/PATHS/VETT where the title carries no topical signal). Bill numbers are formatted via `_format_bill_number` to match the dotted style elsewhere in the codebase ("S.1190", "H.R.1500"). No caching at this layer — the underlying Congress.gov calls are unconditional, since the ingester is meant to run on a cron rather than ad hoc.
-
-**The alert pipeline runs federal and state independently.** `pipeline.py` calls `_run_for_jurisdiction` once with `actor_type='federal', jurisdiction='federal'` and once with `actor_type='state', jurisdiction='state'` so a federal rep's donations never get paired with state bills (and vice versa). Baselines are still computed in one pass — `recompute_baselines` GROUPs BY `actor_type` so federal and state baselines stay separate.
-
-**Each pipeline run sweeps stale alert rows.** After scoring, `_sweep_stale_alerts` deletes any non-dismissed alert whose `(donation_id, vote_id)` pair wasn't refreshed by an upsert this run. That covers three drift cases: the donation aged out of the lookback window, the scheduled vote already happened, or the recomputed score no longer clears `should_alert` (e.g. when state-side calibration changed and pre-existing urgent rows need to drop). Without the sweep, alerts written under old scoring linger forever — historically the table accumulated rows at the old 0.86-urgent threshold even after calibration brought live scores down to ~0.50. **Dismissed alerts are kept** so user-suppressed history doesn't resurface if the same pair becomes alert-worthy again. Sweep scope is per-`actor_type` so the federal pass doesn't touch state rows. Stats: `alerts_swept_stale` in the run summary.
-
-**State alerts get extra calibration to compensate for known data-quality differences.** Without it, every state alert would land above the urgent threshold for two structural reasons: (1) FTM aggregates are lifetime, stamped with today's date, so `R` (donation recency) saturates to 1.0; (2) state donation pools are too sparse to clear `BASELINE_MIN_SAMPLES=3` per industry, so `A` (anomaly) falls back to its 0.5 "unknown" default. The pipeline now passes two state-only kwargs into `score_alert`: `proxy_donation_r=PROXY_DONATION_R` (default 0.4 — flat value reflecting "donations from any point in this rep's career") and `no_baseline_a=NO_BASELINE_A_HONEST` (default 0.0 — honest "we have no anomaly signal" instead of fabricated median). Federal scoring is identical to before. Both knobs are env-overridable via `ALERTS_PROXY_DONATION_R` and `ALERTS_NO_BASELINE_A_HONEST`. **Verified post-calibration (May 2026):** Looney `5631` 39 alerts / 0 urgent, top 0.574 (`$35k pharmaceuticals × healthcare`); Ritter `10807` 16 alerts / 0 urgent, top 0.554 (`$22k pharmaceuticals × healthcare` — exact match to the pre-calibration prediction). Pipeline-wide urgent count went from 33 across both reps → 0; sub-$5k aggregates now correctly fall below the alert floor entirely. Under the current FTM seed no state donation crosses the 0.6 urgent threshold; the documented "$80k+ stays urgent" was the pre-verification estimate, not an observed row.
-
-**FTM aggregates are lifetime — donation_date is always today.** FTM's grouped-aggregate endpoint doesn't honor year filters, so we can't break out donations per cycle. `ingest_ftm.py` writes one row per industry per legislator (lifetime total) with `donation_date = today` so the row stays inside the pipeline's 180-day lookback. This overstates recency relative to itemized FEC data, but per-cycle FTM data isn't available at the free-tier aggregate endpoint — the alternative would be pulling itemized rows, which would burn the monthly quota fast.
-
-**Auth: the frontend `apiRequest` wrapper auto-clears localStorage on a 401.** If the server rejects the token (expired session, deleted user) on any authenticated call, `frontend/src/api.js` runs `auth.clear()` before re-throwing. Without this, the UI would keep retrying the dead token forever. Only fires when the request actually carried a token, so unrelated 401s (e.g. signup conflict edge cases) don't blow away an unrelated session. The auto-login `useEffect` in `App.jsx` also guards the `setCurrentScreen(DASHBOARD)` call so a user mid-navigation doesn't get yanked back when `me()` resolves.
-
-**Auth is local-only — bcrypt + opaque session tokens, no third-party identity provider.** `backend/api/auth.py` exposes `/api/auth/{signup,login,logout,me}` (GET/PATCH/DELETE on `/me`). Passwords are bcrypt-hashed; session tokens are 32-byte `secrets.token_urlsafe` strings with a 30-day TTL, stored in the `sessions` table and validated by the `get_current_user` dependency on each request. The frontend stores the token in `localStorage` (`fuu_token`) plus a cached user object (`fuu_user`); `frontend/src/api.js` auto-attaches `Authorization: Bearer <token>` to every request. The `users` table holds `email`, `password_hash`, `name`, `state`, and `issues` (JSON-encoded list); profile updates from the Settings screen and the issue-select screen go through `PATCH /api/auth/me`. Schema is lazy-initialized via `_ensure_schema()` (gated by a module-level `_schema_ready` flag, like `ai_cache.py`), so the first auth request creates the tables; existing DBs pick up new columns through `db._migrate()`.
-
-**Auth-hardening pass (May 2026).** `auth.py` carries five mitigations on top of the bcrypt baseline: (1) **Login throttle** — in-process per-`(client_ip, email)` failure counter; `LOGIN_MAX_FAILURES` (default 8) inside `LOGIN_WINDOW_SECONDS` (default 15 min) returns 429. State is module-level — survives requests, not server restarts; multi-worker uvicorn deployments effectively scale the limit by worker count, which is fine for the threat model. Tunable via `FUU_LOGIN_MAX_FAILURES` / `FUU_LOGIN_WINDOW_SECONDS`. Tests reset via `_login_throttle_reset_all()`. (2) **Constant-time login** — when the email isn't registered, login still runs bcrypt against `_DUMMY_PASSWORD_HASH` (a precomputed hash of `secrets.token_bytes(32)`), so response timing doesn't leak which emails exist. (3) **DELETE /me re-auth** — the endpoint now requires `{"password": "..."}` and re-verifies the stored hash before deletion, so a stolen bearer token alone can't nuke the account. Frontend `App.jsx#handleDeleteAccount` prompts for the password via `window.prompt`. (4) **Password strength on signup** — rejects ~30 trivially-bad passwords (`password123`, `qwerty123`, etc.) plus the email itself / its local part. Applies only at signup, so existing weak-password accounts keep working. (5) **Opportunistic session prune** — `_new_session` runs `DELETE FROM sessions WHERE expires_at < now` before each insert, so the table doesn't grow unbounded. Still missing: email verification, password reset, account lockout notification — those need SMTP/SES infrastructure and weren't in scope.
+**Auth is local-only — bcrypt + opaque session tokens.** `/api/auth/{signup,login,logout,me}`; 32-byte tokens, 30-day TTL in `sessions` table, `Authorization: Bearer` from frontend. `users` holds `email`, `password_hash`, `name`, `state`, `issues` (JSON list); profile updates via `PATCH /me`. Schema lazy-init via `_ensure_schema()`. Hardening: per-IP/email throttle (8 fails / 15min, 429), constant-time login (bcrypt vs `_DUMMY_PASSWORD_HASH` for unknown emails), `DELETE /me` requires re-auth password, signup rejects ~30 trivial passwords, opportunistic session prune. Missing: email verification, password reset (need SMTP infrastructure).
 
 ## Conventions
 
-- Backend: `async`/`await` everywhere, `httpx.AsyncClient` for outbound calls, retry with exponential backoff on 429s.
-- All endpoints return JSON with consistent shapes. Add new ones to `server.py` next to similar existing endpoints.
-- New external APIs go in `backend/api/` as their own module, then composed in `server.py`.
-- Frontend is intentionally a single `App.jsx` file - all 23 screens, styles via inline `style={s.foo}` objects against a shared `s` style map. Don't split this up casually; the single-file structure was a deliberate choice.
-- Frontend screens are switched via a `currentScreen` state + `SCREENS` enum, not React Router.
+- Backend: `async`/`await` everywhere, `httpx.AsyncClient`, exponential backoff on 429s.
+- New external APIs go in `backend/api/` as their own module, composed in `server.py`.
+- Frontend stays single-file. Don't add React Router.
 
 ## Deploy / PWA
 
-**Frontend ships as a PWA, deployed to Vercel.** `frontend/public/manifest.webmanifest` + `frontend/public/sw.js` + the `<link rel="manifest">` / `apple-touch-icon` block in `index.html` make the app installable: Android Chrome shows an "Install" prompt, iOS Safari supports "Add to Home Screen" with the right icon and full-screen launch (`apple-mobile-web-app-capable=yes`). The service worker is **registered only when `location.hostname !== "localhost"`** so dev iteration isn't fighting stale caches; in production it pre-caches the app shell and goes network-first for everything else, with `/api/*` requests deliberately bypassed (live data must not be cached). Icons (`icon-192.png` / `icon-512.png` / `apple-touch-icon.png`) are bold "fu" on the brand orange `#e77a1b`, generated by a one-off `Add-Type System.Drawing` PowerShell snippet — swap in proper artwork later by replacing the PNG files at the same paths. `frontend/vercel.json` pins SPA rewrites (so deep links don't 404 on refresh), explicit `Cache-Control: no-cache` on `/sw.js` (so SW updates roll out promptly), and the manifest content-type. `theme_color` matches the accent orange so the Android task-switcher tint matches the app.
+**Frontend:** Vercel + PWA. `manifest.webmanifest` + `sw.js` + `<link rel="manifest">` make it installable on Android Chrome and iOS Safari "Add to Home Screen." SW registers only when `hostname !== "localhost"` (dev iteration isn't fighting stale caches); pre-caches app shell, network-first otherwise, **`/api/*` deliberately bypassed** so live data never caches. `vercel.json` pins SPA rewrites + `Cache-Control: no-cache` on `/sw.js`.
 
-**PWA-mode UI is a different render path from the dev preview.** A module-level `isPWA()` (matches `display-mode: standalone` + iOS Safari legacy `navigator.standalone`) is snapshotted at boot into `_IS_PWA_AT_BOOT`. The `App` component branches on it: in PWA mode it returns `renderScreen()` directly with **no dev outer chrome** — no "Live Prototype" title, no "Connected to backend at..." line, no screen-selector pills, no centered phone-frame container. `s.phone` also branches at module load: in browser it's the **393×852** rounded/bordered iPhone-16 frame; in PWA it's `width: 100%; height: 100%`. The simulated `9:41 / FUDGE UR UNCLE / 100%` `StatusBar` component returns `null` in PWA mode and the Settings "Backend Status" panel is gated similarly — both are dev affordances that would look noisy on a real home-screen launch. **Don't use a runtime hook here**: display-mode doesn't change at runtime, and the static `s` style object needs to branch synchronously at module load.
+**PWA-mode UI is a different render path.** Module-level `_IS_PWA_AT_BOOT` snapshot of `display-mode: standalone` + iOS legacy `navigator.standalone`. `App` branches on it: PWA mode returns `renderScreen()` directly with **no dev chrome** (no "Live Prototype" title, screen pills, or phone-frame container). `s.phone` branches at module load: browser is 393×852 framed; PWA is `100% / 100%`. `StatusBar` and Settings "Backend Status" return null in PWA. Don't use a runtime hook — display-mode doesn't change at runtime and `s` needs to branch synchronously.
 
-**Three iOS PWA gotchas burned into the standalone CSS in `index.html`.** All gated by `@media (display-mode: standalone)` so browser preview is untouched: (1) **Body-lock**: `html, body { height: 100%; overflow: hidden; overscroll-behavior: none }` + `body { position: fixed; inset: 0 }` kills body scroll and rubber-band/pull-to-refresh; scroll happens inside `#root { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain }`. (2) **`s.phone` must use `100%`, not `100vw/100vh`** — the body has `padding: env(safe-area-inset-*)` so it's already shrunk to the safe area, and vw/vh would reach back into the dynamic-island and home-indicator zones, squishing iPhone-16 proportions. (3) **`apple-mobile-web-app-status-bar-style: default` does NOT reserve space at the top on modern iOS** — the meta tag only sets icon color now, the page still extends behind the status bar. So `padding-top: env(safe-area-inset-top)` is still required or content slides under the dynamic island. The body's bg in PWA mode is `#fdfbf7` (matches `colors.bg`) so the inset padding regions read as continuous app surface instead of black bands at the top/bottom — matching the bg was the fix; no amount of safe-area math eliminates the bands if body bg differs from content bg.
+**Three iOS PWA gotchas in `index.html` standalone CSS** (gated by `@media (display-mode: standalone)`):
+1. **Body-lock** to kill rubber-band: `html, body { height: 100%; overflow: hidden; overscroll-behavior: none }` + `body { position: fixed; inset: 0 }`. Scroll happens inside `#root { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain }`.
+2. **`s.phone` must be `100%`, not `100vw/100vh`** — body has `padding: env(safe-area-inset-*)` already shrinking to safe area; vw/vh reach back into dynamic-island/home-indicator zones and squish proportions.
+3. **`status-bar-style: default` does NOT reserve space** on modern iOS — page extends behind the status bar. `padding-top: env(safe-area-inset-top)` is still required. Body bg in PWA mode is `#fdfbf7` (matches `colors.bg`) so safe-area regions read continuous instead of black bands.
 
-**Backend deploy uses a Procfile + env-driven port.** `backend/Procfile` is `web: uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}` — Railway, Render, Heroku, and Fly.io all read this format. `backend/config.py` reads `HOST` / `PORT` from env (defaults `0.0.0.0` / `8000`) so `python server.py` and Procfile-driven `uvicorn server:app` paths both honor the host's injected port. Required env on the backend host: `DATA_GOV_API_KEY`, `OPENAI_API_KEY`, `NEWSAPI_KEY`, `GUARDIAN_API_KEY`, `LEGISCAN_API_KEY`, `FTM_API_KEY` — all optional individually, but the AI features need `OPENAI_API_KEY` and the live-data features need their respective keys. **SQLite caveat:** the alerts DB is on disk at `backend/data/whoboughtmyrep.sqlite`. Hosts with ephemeral filesystems (Vercel functions, Render free tier) will lose data on every redeploy — use Railway / Fly volumes / Render paid disks if alert state needs to persist across deploys. **Cron caveat:** `refresh.py` is the cron entrypoint; Railway/Render have native scheduled-job features, Fly uses scheduled machines. For first deploy it's fine to run `refresh.py` manually after a deploy and worry about scheduling later. **Frontend → backend wiring:** set `VITE_API_BASE=https://your-backend-url` in Vercel project env before deploying so production builds hit the deployed FastAPI instead of the localhost Vite proxy. **CORS:** `server.py` has `allow_origins=["*"]` — fine for a public read-only API, tighten to the Vercel domain if the surface ever changes.
+**Backend deploy:** `Procfile` works on Railway/Render/Heroku/Fly. Required for full features: `DATA_GOV_API_KEY`, `OPENAI_API_KEY`, `NEWSAPI_KEY`, `GUARDIAN_API_KEY`, `LEGISCAN_API_KEY`, `FTM_API_KEY`. Frontend needs `VITE_API_BASE=https://your-backend-url` in Vercel env before deploying. CORS is `allow_origins=["*"]` — fine for read-only, tighten if surface changes.
+
+- **Persistence caveat:** SQLite alerts DB lives at `backend/data/whoboughtmyrep.sqlite`. Ephemeral filesystems (Vercel functions, Render free tier) lose data on redeploy — use Railway/Fly volumes/Render paid disk.
+- **Cron caveat:** Railway/Render have native scheduled jobs; Fly uses scheduled machines. `refresh.py` is the entrypoint.
 
 ## Gotchas
 
-- `python -m backend.alerts.pipeline` must run from the **project root**, not from inside `backend/`. The package imports rely on it.
-- `backend/data/whoboughtmyrep.sqlite` is created on first run of `python -m backend.db`. The `/api/alerts/*` endpoints will 503 until that and the pipeline have run.
-- Vite proxies `/api/*` to `localhost:8000`, so don't add `http://localhost:8000` prefixes in frontend fetches - just use `/api/...`.
-- For production frontend builds, set `VITE_API_BASE=https://your-backend.example.com` before `npm run build`.
-- The OpenFEC `candidate -> principal committee` resolution is fuzzy. See `get_principal_committee` in `ingest_fec.py` for the fallback chain (try scoped cycle, then unscoped, then committee lookup by candidate_id).
-- State alerts need cached Legiscan rosters to attribute donations. `_run_for_jurisdiction` (state side) groups donations by actor state via `_state_for_actor_map`, which reads cached `legiscan:people:{STATE}` and `legiscan:profile:{people_id}` rows (plus `SAMPLE_STATE_LEGISLATORS` as fallback). State donations whose `people_id` isn't in any of those is skipped. After a cache wipe: hit the state-rep screen (or run `ingest_state_votes`) to repopulate before re-running `pipeline.py`.
+- `python -m backend.alerts.*` must run from **project root**, not inside `backend/`. Imports rely on it.
+- `/api/alerts/*` 503s until `python -m backend.db` runs and the pipeline has populated.
+- Vite proxies `/api/*` → `:8000`. Don't prefix `http://localhost:8000` in frontend fetches.
+- For prod frontend builds, `VITE_API_BASE=https://backend-url` before `npm run build`.
+- OpenFEC `candidate → principal committee` is fuzzy — see `get_principal_committee` fallback chain in `ingest_fec.py` (scoped cycle, then unscoped, then committee lookup by candidate_id).
+- State alerts need cached Legiscan rosters to attribute donations. After a cache wipe: hit the state-rep screen or run `ingest_state_votes` to repopulate before `pipeline.py`.
 
-## Status (May 2026)
+## Status
 
-Wired and live: local auth (signup/login/logout, bcrypt + bearer-token sessions, persisted state + issue preferences via `PATCH /api/auth/me`), dashboard, unified federal+state search, profile, funding, voting history, timeline, take-action, contact reps, settings, alerts (when pipeline has run), events + event detail (real Congress.gov committee meetings, NewsAPI news articles, OpenAI plain-English summaries), AI stance analysis on profile screen, AI promise scoring on profile screen (scrapes rep's .gov site, scores stated promises vs votes — both AI features require `OPENAI_API_KEY`), state legislators screen (Legiscan roster, sample-data fallback when `LEGISCAN_API_KEY` is missing), state-legislator profile deep-dive (votes, stances, promises — same AI pipeline as federal, with Ballotpedia as the scrape target).
+Everything wired and live: auth, dashboard, federal+state search, profile/funding/votes, timeline, take-action, contact, settings, alerts (federal + state with calibration), events with news + AI summaries, AI stances + promises (federal + state via Ballotpedia).
 
-State alerts pipeline is now producing real cards on the UI (verified end-to-end May 2026 against live Legiscan + sample-eid FTM donations). Flow: polymorphic schema (`actor_type`/`actor_id`, `external_ids`) → `ingest_ftm.py` writes FTM-aggregate donations tagged `actor_type='state'` (eids resolve via `backend/data/ftm_eids.csv` first, falling through to `SAMPLE_FTM_EIDS`; CSV currently seeds 34 verified eids across CT, NY, NJ, CA, MA) → `ingest_state_votes.py` reads the live Legiscan masterlist (210 engrossed CT bills on a typical run) and writes 66 categorized bills to `scheduled_votes` tagged `jurisdiction='state'` → `pipeline.py` runs federal and state independently with state-only score calibration applied → `StateRepAlertsScreen` (Alerts tab on the state-rep profile) calls `GET /api/alerts/by-actor/state/{people_id}` and renders cards with score/urgent/donation→vote pairing/T,V,D,R signals. **Last verified run, post-calibration (May 2026, `PROXY_DONATION_R=0.4` + `NO_BASELINE_A_HONEST=0.0` applied):** pipeline summary `alerts_urgent: 0`, 49 new + 12 updated, 12 stale rows swept, 2370 pairs scored across 1037 donations × 41 votes. Per-rep: Looney `5631` 39 alerts / 0 urgent (top 0.574, `$35k pharmaceuticals × healthcare`); Ritter `10807` 16 alerts / 0 urgent (top 0.554, `$22k pharmaceuticals × healthcare` — exact match to predicted score). Pre-calibration baseline was 72+26 alerts / 33 urgent across the two reps; calibration knocked all state alerts below the 0.6 urgent threshold while leaving 49 above the 0.3 alert floor. Federal scoring unchanged.
+Test suite: 34 tests across `test_smoke.py` (HTTP shape, auth, alerts), `test_pipeline.py` (federal/state scoring + stale-sweep + state-calibration anchor at 0.554), `test_classifier.py` (PAC classifier word-boundary + transport-vs-union regressions).
 
-Federal alerts pipeline shipped May 2026 (`ingest_federal_votes.py`). First live run against Congress.gov 119th: 37 floor-imminent bills returned, 6 categorized cleanly, 5 stale seed rows purged + 6 dependent alerts cleaned. Subsequent `pipeline.py` run scored 6454 pairs (1029 federal donations × 6 votes + 8 state donations × 35 votes), wrote 125 new alerts (10 urgent), and swept 7 stale state rows. The federal feed is no longer deferred; both jurisdictions now run off live status-proxy ingest. Run `python -m backend.alerts.ingest_federal_votes` from project root before each `pipeline.py` if you want the freshest set.
-
-Deferred / not yet implemented:
-- **FTM eid lookup at scale.** Live aggregate-fetching is verified working (`dataset=contributions&gro=d-cci&c-t-eid=<EID>` returns the right shape on real keys), but candidate enumeration by state is blocked on FTM's undocumented state-filter syntax — `_live_find_eid` is still a stub. The offline-directory workaround (`backend/data/ftm_eids.csv` loaded by `backend/api/ftm_directory.py`) now seeds 34 verified eids across CT (19), NY (5), NJ (4), CA (4), MA (2); expanding further is still manual (look up the rep on followthemoney.org, copy the eid, append a CSV row). MA in particular is thin — Karen Spilka and Brad Jones don't surface in FTM search, suggesting OCPF data isn't fully mirrored. **Current dev key is quota-exhausted ("pending Institute review")** — empirical probing of new candidate-search prefixes is not possible until the cap resets or a new key is registered.
-
-## Recent History
-
-Five rounds of audit cleanup (May 2026) shipped — covering legiscan vote-shape, state-pipeline cross-pollination, UTC-naive datetime handling, OpenFEC cycle hardcoding, congress ordinal URL bug, ai_cache `expires_at` format mismatch, Legiscan rate limiting, FTM cache poisoning, frontend stale-token loop, PAC classifier substring false positives (UPS/UBS/etc.), UPS/FedEx misclassified as unions, and orphan FTM industry slugs. Each gotcha that has ongoing relevance is captured in Architecture Notes / Gotchas above; everything else lives in `git log` (search for "Audit Cleanup" / "pac_classifier" / "Close fifth-pass").
-
-Test suite — 34 tests across `test_smoke.py` (HTTP shape, auth, alerts shape/filters), `test_pipeline.py` (federal/state scoring + stale-sweep + state-calibration anchor pin at 0.554), and `test_classifier.py` (PAC classifier regressions including word-boundary, transport-vs-union, and tightened-keyword cases) — locks in the regressions that motivated the audits.
+**Deferred:** FTM live `_live_find_eid` — candidate enumeration by state is blocked on undocumented FTM filter syntax. Workaround is `backend/data/ftm_eids.csv` (manual append after looking up on followthemoney.org). Email verification + password reset need SMTP infrastructure.
