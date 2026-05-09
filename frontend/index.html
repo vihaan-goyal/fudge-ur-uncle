@@ -32,6 +32,14 @@
         color: #e2e8f0;
         -webkit-font-smoothing: antialiased;
       }
+      /* When launched as a PWA (Add to Home Screen), kill the rubber-band /
+         pull-to-refresh behavior so it feels native instead of webby. The
+         media query keeps the browser experience untouched. */
+      @media (display-mode: standalone) {
+        html, body {
+          overscroll-behavior: none;
+        }
+      }
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-track { background: #0a0e17; }
       ::-webkit-scrollbar-thumb { background: #2a3a52; border-radius: 4px; }
