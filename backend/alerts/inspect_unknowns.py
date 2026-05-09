@@ -11,7 +11,10 @@ Usage:
 
 import argparse
 
-from ..db import connect
+try:
+    from ..db import connect
+except ImportError:
+    from db import connect
 
 
 def inspect(limit: int = 30) -> None:

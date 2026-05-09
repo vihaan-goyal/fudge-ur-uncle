@@ -8,7 +8,10 @@ fec_filing_id, votes by bill_number, news by url).
 
 from datetime import date, datetime, timedelta
 
-from ..db import connect
+try:
+    from ..db import connect
+except ImportError:
+    from db import connect
 
 
 def _seed_donations(conn) -> int:

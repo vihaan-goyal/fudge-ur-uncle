@@ -36,7 +36,10 @@ _BACKEND_DIR = Path(__file__).parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-from ..db import connect  # noqa: E402
+try:
+    from ..db import connect  # noqa: E402
+except ImportError:
+    from db import connect  # noqa: E402
 from .state_categories import categorize  # noqa: E402
 
 from api import congress_gov  # type: ignore  # noqa: E402

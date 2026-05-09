@@ -24,7 +24,10 @@ def _utcnow_iso() -> str:
     """
     return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
-from ..db import connect
+try:
+    from ..db import connect
+except ImportError:
+    from db import connect
 from . import config
 from .scoring import (
     Donation,

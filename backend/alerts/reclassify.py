@@ -13,7 +13,10 @@ Usage:
 import argparse
 from collections import Counter
 
-from ..db import connect
+try:
+    from ..db import connect
+except ImportError:
+    from db import connect
 from . import pac_classifier
 
 

@@ -33,7 +33,10 @@ if str(_BACKEND_DIR) not in sys.path:
 
 import httpx  # noqa: E402
 
-from ..db import connect  # noqa: E402
+try:
+    from ..db import connect  # noqa: E402
+except ImportError:
+    from db import connect  # noqa: E402
 from . import pac_classifier  # noqa: E402
 
 # Import config lazily so running --help doesn't require .env to exist

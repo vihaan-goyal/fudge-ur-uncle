@@ -37,7 +37,10 @@ _BACKEND_DIR = Path(__file__).parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-from ..db import connect  # noqa: E402
+try:
+    from ..db import connect  # noqa: E402
+except ImportError:
+    from db import connect  # noqa: E402
 from .catcode_map import industry_for_ftm_name  # noqa: E402
 
 from api import followthemoney as ftm  # type: ignore  # noqa: E402
