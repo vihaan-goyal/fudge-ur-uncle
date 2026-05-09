@@ -2514,8 +2514,10 @@ export default function App() {
 
   const handleDeleteAccount = async () => {
     if (!window.confirm("Permanently delete your account? This can't be undone.")) return;
+    const password = window.prompt("Confirm your password to delete your account:");
+    if (!password) return;
     try {
-      await api.deleteAccount();
+      await api.deleteAccount(password);
     } catch (e) {
       alert(`Could not delete account: ${e.detail || e.message}`);
       return;

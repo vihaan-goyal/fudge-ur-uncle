@@ -88,7 +88,8 @@ export const api = {
   updateMe: ({ name, state, issues }) =>
     apiRequest("/api/auth/me", { method: "PATCH", body: { name, state, issues } }),
 
-  deleteAccount: () => apiRequest("/api/auth/me", { method: "DELETE" }),
+  deleteAccount: (password) =>
+    apiRequest("/api/auth/me", { method: "DELETE", body: { password } }),
 
   getRepsByState: (state) =>
     apiRequest(`/api/reps/by-state/${encodeURIComponent(state)}`),
