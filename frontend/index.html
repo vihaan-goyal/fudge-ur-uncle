@@ -15,7 +15,7 @@
          needs apple-touch-icon + apple-mobile-web-app-* meta tags. -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="FuU" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -47,11 +47,14 @@
         body {
           position: fixed;
           inset: 0;
-          /* Push the page out of the dynamic island & home-indicator zones.
-             body's #060810 background shows in the inset margins, giving a
-             letterbox look; the inner content (warm off-white) stays inside
-             the safe area, so iPhone-16 proportions don't get squished. */
-          padding-top: env(safe-area-inset-top);
+          /* Match the app's content bg (colors.bg) so the safe-area regions
+             — the dynamic-island top strip and the home-indicator bottom
+             strip — blend with the inner content instead of showing as
+             black bands. With status-bar-style=default iOS draws the
+             status bar above the page, so we don't pad-top here. The
+             bottom inset still needs padding so content (and our bottom
+             nav bar) doesn't sit under the home indicator. */
+          background: #fdfbf7;
           padding-bottom: env(safe-area-inset-bottom);
           padding-left: env(safe-area-inset-left);
           padding-right: env(safe-area-inset-right);
