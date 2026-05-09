@@ -47,6 +47,14 @@
         body {
           position: fixed;
           inset: 0;
+          /* Push the page out of the dynamic island & home-indicator zones.
+             body's #060810 background shows in the inset margins, giving a
+             letterbox look; the inner content (warm off-white) stays inside
+             the safe area, so iPhone-16 proportions don't get squished. */
+          padding-top: env(safe-area-inset-top);
+          padding-bottom: env(safe-area-inset-bottom);
+          padding-left: env(safe-area-inset-left);
+          padding-right: env(safe-area-inset-right);
         }
         #root {
           height: 100%;

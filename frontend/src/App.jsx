@@ -93,7 +93,11 @@ const s = {
   // launched as an installed PWA we drop the chrome and fill the viewport.
   phone: _IS_PWA_AT_BOOT
     ? {
-        width: "100vw", height: "100vh",
+        // 100% (not 100vw/vh) so we size to #root, which body has already
+        // shrunk to the safe area via env(safe-area-inset-*) padding.
+        // Using vw/vh here would overflow back into the dynamic-island and
+        // home-indicator zones and squish the content's proportions.
+        width: "100%", height: "100%",
         background: colors.bg, position: "relative",
         overflow: "hidden", fontFamily: fontSans,
         color: colors.text, fontSize: 13,
