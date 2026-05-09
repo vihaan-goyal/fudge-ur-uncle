@@ -47,14 +47,13 @@
         body {
           position: fixed;
           inset: 0;
-          /* Match the app's content bg (colors.bg) so the safe-area regions
-             — the dynamic-island top strip and the home-indicator bottom
-             strip — blend with the inner content instead of showing as
-             black bands. With status-bar-style=default iOS draws the
-             status bar above the page, so we don't pad-top here. The
-             bottom inset still needs padding so content (and our bottom
-             nav bar) doesn't sit under the home indicator. */
+          /* Modern iOS extends the page behind the status bar regardless
+             of status-bar-style, so we still need padding-top or content
+             slides under the dynamic island. body bg matches colors.bg
+             so the inset padding regions look continuous with the app
+             body instead of black bands. */
           background: #fdfbf7;
+          padding-top: env(safe-area-inset-top);
           padding-bottom: env(safe-area-inset-bottom);
           padding-left: env(safe-area-inset-left);
           padding-right: env(safe-area-inset-right);
