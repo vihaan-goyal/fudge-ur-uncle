@@ -116,6 +116,12 @@ async def _donations_loop() -> None:
             print("[bg-donations] starting donations tick")
             await loop.run_in_executor(None, _sync_donations_ingest)
             print("[bg-donations] donations tick complete")
+            # Kick off a refresh immediately so the new donations get
+            # scored against existing votes without waiting for the next
+            # scheduled refresh tick (which could be ~6h away).
+            print("[bg-donations] triggering post-ingest refresh")
+            await loop.run_in_executor(None, _sync_refresh)
+            print("[bg-donations] post-ingest refresh complete")
         except Exception as e:
             print(f"[bg-donations] tick failed: {e}")
             traceback.print_exc()
