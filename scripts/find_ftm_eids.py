@@ -78,10 +78,15 @@ def list_gaps(state: str, chamber: str) -> list[tuple[str, str, str, str]]:
             name = (p.get("name") or "").strip()
             if not name:
                 continue
+            district = (p.get("district") or "").strip()
+            party = (p.get("party") or "").strip()
+            # Legiscan's CA roster includes committee names like "Agriculture"
+            # alongside real people; drop rows missing both district and party.
+            if not district and not party:
+                continue
             last = name.lower().split()[-1]
             if (st, name.lower()) in full or (st, last) in surname:
                 continue
-            district = p.get("district") or ""
             out.append((st, ch, name, district))
     return out
 
