@@ -38,6 +38,18 @@ app.add_middleware(
 app.include_router(alerts_router)
 app.include_router(auth_router)
 
+
+@app.on_event("startup")
+def _ensure_alerts_schema() -> None:
+    # Idempotent — creates the alerts tables if a fresh volume mounted without
+    # them. Without this, /api/alerts 503s with "Run: python -m backend.db..."
+    # until someone shells in and runs it manually.
+    try:
+        import db
+        db.init_db()
+    except Exception as e:
+        print(f"[startup] init_db skipped: {e}")
+
 # ============================================================
 # HEALTH
 # ============================================================

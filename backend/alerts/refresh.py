@@ -33,6 +33,10 @@ import sys
 import traceback
 from typing import Iterable
 
+try:
+    from ..db import init_db
+except ImportError:
+    from db import init_db
 from .ingest_federal_votes import (
     DEFAULT_CONGRESS,
     DEFAULT_VOTE_LEAD_DAYS as FED_LEAD_DAYS,
@@ -91,6 +95,11 @@ def run(
         "ingest_failures": [],
         "pipeline_stats": None,
     }
+
+    # Ensure schema exists before any ingester writes. Idempotent — safe to
+    # run on every cron tick. Without this, a fresh volume (Railway redeploy,
+    # new env) makes ingesters crash with `no such table: scheduled_votes`.
+    init_db()
 
     if not skip_federal:
         fed = _run_federal(congress=congress, lead_days=fed_lead_days)
