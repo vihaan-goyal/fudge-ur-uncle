@@ -77,6 +77,8 @@ Tests use `FUU_DB_PATH` (set by conftest) so they don't clobber dev data.
 
 **Single-file frontend.** `App.jsx` holds all 23 screens. Inline `style={s.foo}` against a shared `s` map. Screen routing via `currentScreen` state + `SCREENS` enum, not React Router. Don't split casually.
 
+**Alerts are grouped client-side.** Pipeline writes one row per (donation × vote) pair, so a single donor in one category produces N near-identical cards (same headline, only bill differs). `groupAlerts()` in `App.jsx` collapses by `(actor_id, industry, category)`, takes the highest-scoring row as the lead, and rolls the rest into a bill list ("N upcoming {category} bills · $X lifetime" + first 3 bills + "(+K more)"). Both `AlertsScreen` and `StateRepAlertsScreen` use it. Singleton groups (or `SAMPLE.alerts` rows missing `donation`/`vote` fields) render the original body unchanged.
+
 **Profile endpoint is the workhorse.** `/api/profile/{bioguide_id}` returns bio + funding + votes in one shot. Dashboard uses lazy loading: `/api/reps/by-state/{state}` returns reps with `funding: null`, frontend fans out per-rep `/api/reps/{id}/funding-lite` calls.
 
 **Events use a two-phase fetch.** `/api/events` fetches the Congress.gov committee-meeting list (URL stubs only), then `asyncio.gather`s up to 10 detail URLs in parallel. Title/date/location only come from detail. 5-min in-process cache. Event detail lazily fetches news (`/article` — NewsAPI primary, Guardian fallback) and AI summary (`/summary` — gpt-4o-mini, 2-sentence brief). `news.py`/`guardian.py` strip congressional boilerplate to build focused queries.
