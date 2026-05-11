@@ -1634,6 +1634,38 @@ const LearnToVoteScreen = ({ onNav, userState }) => (
   </div>
 );
 
+// Collapse alerts that share (actor, industry, category) into a single card.
+// The pipeline writes one row per (donation x vote) pair, so a donor with N
+// bills in the same category produces N identical-looking headlines. Group
+// here so the user sees one card with the bills rolled up.
+function groupAlerts(alerts) {
+  if (!alerts) return [];
+  const groups = new Map();
+  for (const a of alerts) {
+    const industry = a.donation?.industry;
+    const category = a.vote?.category;
+    // If the alert is missing the fields we'd group by (e.g. SAMPLE.alerts
+    // fallback shape), keep it ungrouped by keying on its id.
+    const key = (industry && category)
+      ? `${a.actor_id ?? a.bioguide_id ?? ""}|${industry}|${category}`
+      : `__solo__${a.id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(a);
+  }
+  const out = [];
+  for (const group of groups.values()) {
+    group.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+    const lead = group[0];
+    out.push({
+      ...lead,
+      bills: group.map((a) => a.vote).filter(Boolean),
+      groupSize: group.length,
+    });
+  }
+  out.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+  return out;
+}
+
 // 16. ALERTS - Wired to backend
 const AlertsScreen = ({ onNav, onSelectPolitician }) => {
   const [alerts, setAlerts] = useState(null);
@@ -1710,11 +1742,13 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
           </div>
         )}
 
-        {alerts && alerts.map((a) => {
+        {alerts && groupAlerts(alerts).map((a) => {
           // Real alerts have richer shape than SAMPLE.alerts
           const isUrgent = a.urgent !== undefined ? a.urgent : (a.score ?? 0) > 0.6;
           const headline = a.headline || a.text;
           const time = a.time || "recently";
+          const bills = a.bills || [];
+          const grouped = (a.groupSize || 1) > 1;
           return (
             <div
               key={a.id}
@@ -1733,10 +1767,30 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, lineHeight: 1.35 }}>
                 {headline}
               </div>
-              {a.body && (
+              {grouped ? (
                 <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
-                  {a.body}
+                  <div style={{ marginBottom: 6 }}>
+                    {a.groupSize} upcoming {a.vote?.category || ""} bills
+                    {a.donation?.amount ? ` · $${Number(a.donation.amount).toLocaleString()} lifetime` : ""}
+                  </div>
+                  {bills.slice(0, 3).map((v, i) => (
+                    <div key={i} style={{ marginLeft: 2, marginBottom: 2 }}>
+                      ▸ <span style={{ fontFamily: font }}>{v.bill_number}</span>
+                      {v.title ? `  ${v.title.length > 60 ? v.title.slice(0, 57) + "…" : v.title}` : ""}
+                    </div>
+                  ))}
+                  {bills.length > 3 && (
+                    <div style={{ marginLeft: 2, marginTop: 2, fontStyle: "italic" }}>
+                      (+{bills.length - 3} more)
+                    </div>
+                  )}
                 </div>
+              ) : (
+                a.body && (
+                  <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
+                    {a.body}
+                  </div>
+                )
               )}
               {isReal && a.score !== undefined && (
                 <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
@@ -2410,7 +2464,10 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
           </div>
         )}
 
-        {alerts && alerts.map((a) => (
+        {alerts && groupAlerts(alerts).map((a) => {
+          const bills = a.bills || [];
+          const grouped = (a.groupSize || 1) > 1;
+          return (
           <div
             key={a.id}
             style={{
@@ -2428,15 +2485,37 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, lineHeight: 1.35 }}>
               {a.headline}
             </div>
-            {a.body && (
+            {grouped ? (
               <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
-                {a.body}
+                <div style={{ marginBottom: 6 }}>
+                  {a.groupSize} upcoming {a.vote?.category || ""} bills
+                  {a.donation?.amount ? ` · ${fmtMoney(a.donation.amount)} lifetime` : ""}
+                </div>
+                {bills.slice(0, 3).map((v, i) => (
+                  <div key={i} style={{ marginLeft: 2, marginBottom: 2 }}>
+                    ▸ <span style={{ fontFamily: font }}>{v.bill_number}</span>
+                    {v.title ? `  ${v.title.length > 60 ? v.title.slice(0, 57) + "…" : v.title}` : ""}
+                  </div>
+                ))}
+                {bills.length > 3 && (
+                  <div style={{ marginLeft: 2, marginTop: 2, fontStyle: "italic" }}>
+                    (+{bills.length - 3} more)
+                  </div>
+                )}
               </div>
-            )}
-            {a.donation && a.vote && (
-              <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginBottom: 6 }}>
-                {fmtMoney(a.donation.amount)} · {a.donation.industry} → {a.vote.bill_number} ({a.vote.category})
-              </div>
+            ) : (
+              <>
+                {a.body && (
+                  <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
+                    {a.body}
+                  </div>
+                )}
+                {a.donation && a.vote && (
+                  <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginBottom: 6 }}>
+                    {fmtMoney(a.donation.amount)} · {a.donation.industry} → {a.vote.bill_number} ({a.vote.category})
+                  </div>
+                )}
+              </>
             )}
             {a.score !== undefined && (
               <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
@@ -2450,7 +2529,8 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {isReal && alerts && alerts.length > 0 && (
           <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
