@@ -50,6 +50,91 @@ def _ensure_alerts_schema() -> None:
     except Exception as e:
         print(f"[startup] init_db skipped: {e}")
 
+
+# ============================================================
+# BACKGROUND REFRESH
+# Railway volumes can't be shared across services, so the cron-style
+# refresh has to live inside the web process to write to the same DB
+# the web reads. Gated on FUU_BACKGROUND_REFRESH=1 so dev `python
+# server.py` doesn't hammer external APIs.
+# ============================================================
+
+import os  # noqa: E402  (kept near the background-task block on purpose)
+import traceback  # noqa: E402
+
+_REFRESH_INTERVAL_SECONDS = int(os.environ.get("FUU_REFRESH_INTERVAL_SECONDS", "21600"))   # 6h
+_DONATIONS_INTERVAL_SECONDS = int(os.environ.get("FUU_DONATIONS_INTERVAL_SECONDS", "86400"))  # 24h
+_REFRESH_INITIAL_DELAY = int(os.environ.get("FUU_REFRESH_INITIAL_DELAY", "30"))            # 30s
+_DONATIONS_INITIAL_DELAY = int(os.environ.get("FUU_DONATIONS_INITIAL_DELAY", "60"))        # 60s
+_DONATION_STATES = tuple(s.strip().upper() for s in os.environ.get(
+    "FUU_DONATION_STATES", "CT,NY,NJ,CA,MA"
+).split(",") if s.strip())
+
+
+def _sync_refresh() -> None:
+    # Runs in a thread executor because refresh.run() calls asyncio.run()
+    # internally; can't be invoked from inside the server's event loop.
+    from alerts.refresh import run as refresh_run
+    refresh_run()
+
+
+def _sync_donations_ingest() -> None:
+    import asyncio as _a
+    from alerts.ingest_fec import ingest as fec_ingest
+    from alerts.ingest_ftm import ingest_state as ftm_ingest
+
+    print("[bg-donations] FEC ingest (days=365)")
+    _a.run(fec_ingest(days=365))
+    for state in _DONATION_STATES:
+        print(f"[bg-donations] FTM ingest {state}")
+        try:
+            _a.run(ftm_ingest(state=state))
+        except Exception as e:
+            print(f"[bg-donations] FTM {state} failed: {e}")
+            traceback.print_exc()
+
+
+async def _refresh_loop() -> None:
+    await asyncio.sleep(_REFRESH_INITIAL_DELAY)
+    loop = asyncio.get_event_loop()
+    while True:
+        try:
+            print("[bg-refresh] starting refresh tick")
+            await loop.run_in_executor(None, _sync_refresh)
+            print("[bg-refresh] refresh tick complete")
+        except Exception as e:
+            print(f"[bg-refresh] tick failed: {e}")
+            traceback.print_exc()
+        await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
+
+
+async def _donations_loop() -> None:
+    await asyncio.sleep(_DONATIONS_INITIAL_DELAY)
+    loop = asyncio.get_event_loop()
+    while True:
+        try:
+            print("[bg-donations] starting donations tick")
+            await loop.run_in_executor(None, _sync_donations_ingest)
+            print("[bg-donations] donations tick complete")
+        except Exception as e:
+            print(f"[bg-donations] tick failed: {e}")
+            traceback.print_exc()
+        await asyncio.sleep(_DONATIONS_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def _start_background_tasks() -> None:
+    if os.environ.get("FUU_BACKGROUND_REFRESH", "0") != "1":
+        print("[startup] background refresh DISABLED (set FUU_BACKGROUND_REFRESH=1 to enable)")
+        return
+    asyncio.create_task(_refresh_loop())
+    asyncio.create_task(_donations_loop())
+    print(
+        f"[startup] background tasks scheduled: "
+        f"refresh every {_REFRESH_INTERVAL_SECONDS}s, "
+        f"donations every {_DONATIONS_INTERVAL_SECONDS}s"
+    )
+
 # ============================================================
 # HEALTH
 # ============================================================
