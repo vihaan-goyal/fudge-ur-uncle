@@ -170,47 +170,6 @@ async def health():
     return _health_payload()
 
 
-@app.get("/api/_debug/db", tags=["health"])
-async def _debug_db():
-    # Temporary diagnostic — reports what DB path the web service sees and
-    # what's in it. Remove after Railway deploy is verified.
-    import os, sqlite3
-    from pathlib import Path
-    raw = os.environ.get("FUU_DB_PATH")
-    default = Path(__file__).parent / "data" / "whoboughtmyrep.sqlite"
-    path = Path(raw) if raw else default
-    info = {
-        "env_FUU_DB_PATH": raw,
-        "default_path": str(default),
-        "resolved_path": str(path),
-        "exists": path.exists(),
-        "parent_exists": path.parent.exists(),
-        "parent_listing": [],
-        "tables": {},
-    }
-    try:
-        if path.parent.exists():
-            info["parent_listing"] = sorted(p.name for p in path.parent.iterdir())
-    except Exception as e:
-        info["parent_listing_error"] = str(e)
-    if path.exists():
-        try:
-            conn = sqlite3.connect(path)
-            tables = [r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()]
-            for t in tables:
-                try:
-                    n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                    info["tables"][t] = n
-                except Exception as e:
-                    info["tables"][t] = f"error: {e}"
-            conn.close()
-        except Exception as e:
-            info["db_error"] = str(e)
-    return info
-
-
 # ============================================================
 # REPRESENTATIVES  -  /api/reps
 # ============================================================
