@@ -25,6 +25,7 @@ to categorize, that's information — the bill is more likely procedural
 (land conveyances, claims commissioner resolutions) than substantive policy.
 """
 
+import hashlib
 import re
 
 # (category, list of regex patterns matched against the lowercased title).
@@ -401,4 +402,91 @@ def categorize(title: str) -> str | None:
         for pat in patterns:
             if pat.search(haystack):
                 return cat
+    return None
+
+
+CATEGORIES = [c for c, _ in CATEGORY_KEYWORDS]
+_AI_CACHE_TTL_HOURS = 24 * 30  # 30 days; bill titles are stable, residue is small
+_AI_MAX_DESC_CHARS = 1000      # truncate long policy descriptions; title carries most of the signal
+
+
+def _ai_cache_key(title: str, description: str) -> str:
+    h = hashlib.sha1(f"{title}||{description or ''}".encode("utf-8")).hexdigest()[:16]
+    return f"cat:{h}"
+
+
+async def ai_categorize(title: str, description: str = "") -> str | None:
+    """
+    Fallback categorizer for bills that didn't match any keyword regex.
+
+    Uses gpt-4o-mini to assign one of the 13 categories or "none". Description
+    is allowed here (unlike the regex path) because the LLM can reason past
+    incidental keyword overlap that broke description-fallback in the regex.
+
+    Results cached 30d in ai_cache under cat:{sha1(title+desc)}. Returns None
+    when OPENAI_API_KEY is missing, the call fails, or the model returns
+    "none". This means behavior is identical to today when the key is unset.
+    """
+    if not title:
+        return None
+
+    try:
+        # Late imports to keep this module importable in environments where
+        # the backend package layout isn't on sys.path yet (tests, scripts).
+        from config import OPENAI_API_KEY  # type: ignore
+        from api import ai_cache  # type: ignore
+    except ImportError:
+        return None
+
+    if not OPENAI_API_KEY:
+        return None
+
+    desc = (description or "")[:_AI_MAX_DESC_CHARS]
+    cache_key = _ai_cache_key(title, desc)
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        # Sentinel "none" cached as JSON-null is treated as a miss by ai_cache.get,
+        # so we cache the literal string "none" instead and translate here.
+        return None if cached == "none" else cached
+
+    try:
+        import openai  # type: ignore
+    except ImportError:
+        return None
+
+    allowed = ", ".join(CATEGORIES)
+    prompt = (
+        "Classify this legislative bill into exactly one of these topic categories, "
+        f"or 'none' if it doesn't substantively fit any of them: {allowed}.\n\n"
+        "Rules:\n"
+        "  - Pick the SINGLE best fit. If a bill touches multiple topics, pick the most central.\n"
+        "  - Use 'none' for procedural bills (claims, conveyances, naming, commemorative resolutions), "
+        "appointments, and bills whose subject is too narrow or generic to map.\n"
+        "  - Reply with the category word only — no punctuation, no explanation, no JSON.\n\n"
+        f"TITLE: {title}\n"
+    )
+    if desc:
+        prompt += f"DESCRIPTION: {desc}\n"
+
+    try:
+        client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=8,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = (response.choices[0].message.content or "").strip().lower()
+    except Exception as e:
+        print(f"[state_categories] ai_categorize failed ({e})")
+        return None
+
+    # Tolerate trailing punctuation / quoting around the single-word reply.
+    token = re.sub(r"[^a-z]+", "", raw)
+    if token in CATEGORIES:
+        ai_cache.set(cache_key, token, ttl_hours=_AI_CACHE_TTL_HOURS)
+        return token
+
+    # Cache misses ('none' or unrecognized) so we don't pay for them again.
+    ai_cache.set(cache_key, "none", ttl_hours=_AI_CACHE_TTL_HOURS)
     return None

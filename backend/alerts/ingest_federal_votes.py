@@ -40,7 +40,7 @@ try:
     from ..db import connect  # noqa: E402
 except ImportError:
     from db import connect  # noqa: E402
-from .state_categories import categorize  # noqa: E402
+from .state_categories import categorize, ai_categorize  # noqa: E402
 
 from api import congress_gov  # type: ignore  # noqa: E402
 
@@ -124,6 +124,7 @@ async def ingest_federal_votes(
     stats = {
         "bills_considered": len(bills),
         "uncategorized_skipped": 0,
+        "ai_recovered": 0,
         "stale_status_skipped": 0,
         "rows_inserted": 0,
         "rows_updated": 0,
@@ -140,10 +141,19 @@ async def ingest_federal_votes(
         if not sched:
             stats["stale_status_skipped"] += 1
             continue
-        category = categorize(bill.get("title") or "")
+        title = bill.get("title") or ""
+        category = categorize(title)
         if not category:
-            stats["uncategorized_skipped"] += 1
-            continue
+            # Regex missed; try the AI fallback. Returns None when OPENAI_API_KEY
+            # is unset or the bill truly fits no category — both treated as skip.
+            category = await ai_categorize(title, bill.get("description") or "")
+            if category:
+                stats["ai_recovered"] += 1
+            else:
+                stats["uncategorized_skipped"] += 1
+                # Log the residue so we can grow the regex over time.
+                print(f"[federal-votes]   uncategorized: {bill.get('number')} {title[:80]}")
+                continue
         if dry_run:
             print(f"[federal-votes]   would write: {bill.get('number')} ({category}) -> {sched.isoformat()}")
             continue

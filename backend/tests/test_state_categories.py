@@ -18,6 +18,7 @@ the existing 13, leaving it uncategorized is the right call.
 """
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -147,3 +148,286 @@ def test_categorize_boundary_cases(title, expected):
     assert categorize(title) == expected, (
         f"{title!r} got {categorize(title)!r}, expected {expected!r}"
     )
+
+
+# ---------- AI fallback ----------
+#
+# These tests exercise the wiring around ai_categorize, not the LLM itself.
+# They stub the OpenAI client + ai_cache so the path runs with no API key
+# and confirm: regex hits don't invoke AI, regex misses do, and recovered
+# categories flow through into the ingester stats.
+
+
+@pytest.fixture
+def stub_ai_cache(app):
+    """Use an in-memory dict instead of SQLite for cat:* keys.
+
+    Depends on `app` so the conftest fixture chain sets FUU_DB_PATH before
+    we (transitively) import `api.ai_cache` — that module eagerly loads
+    `db` and would otherwise bind DB_PATH to the prod path mid-session,
+    breaking later ingester tests.
+    """
+    store: dict = {}
+
+    def fake_get(key):
+        return store.get(key)
+
+    def fake_set(key, value, ttl_hours=168):
+        store[key] = value
+
+    with patch("api.ai_cache.get", side_effect=fake_get), \
+         patch("api.ai_cache.set", side_effect=fake_set):
+        yield store
+
+
+def _make_openai_stub(reply: str):
+    """Return an async stub of openai.AsyncOpenAI.chat.completions.create."""
+    class _Msg:
+        content = reply
+    class _Choice:
+        message = _Msg()
+    class _Resp:
+        choices = [_Choice()]
+
+    async def _create(*_args, **_kwargs):
+        return _Resp()
+
+    class _Completions:
+        create = staticmethod(_create)
+    class _Chat:
+        completions = _Completions()
+    class _Client:
+        def __init__(self, *_args, **_kwargs):
+            self.chat = _Chat()
+
+    return _Client
+
+
+def test_ai_categorize_returns_none_without_key(stub_ai_cache):
+    """No API key -> behaviour identical to today (returns None)."""
+    import asyncio
+    from backend.alerts import state_categories
+
+    with patch.object(state_categories, "__name__", state_categories.__name__):
+        # Patch config.OPENAI_API_KEY at the module attribute lookup site.
+        import config
+        with patch.object(config, "OPENAI_API_KEY", ""):
+            result = asyncio.run(state_categories.ai_categorize("Some Random Title"))
+    assert result is None
+
+
+def test_ai_categorize_maps_valid_category(stub_ai_cache):
+    """gpt-4o-mini returns "healthcare" -> we trust it and cache."""
+    import asyncio
+    import config
+    from backend.alerts import state_categories
+
+    stub_client = _make_openai_stub("healthcare")
+    with patch.object(config, "OPENAI_API_KEY", "sk-test"), \
+         patch("openai.AsyncOpenAI", stub_client):
+        result = asyncio.run(state_categories.ai_categorize(
+            "An Act Concerning Pharmacy Benefit Managers",
+            "Regulates PBM reimbursement practices.",
+        ))
+    assert result == "healthcare"
+    # Verify it cached the result.
+    cache_key = state_categories._ai_cache_key(
+        "An Act Concerning Pharmacy Benefit Managers",
+        "Regulates PBM reimbursement practices.",
+    )
+    assert stub_ai_cache[cache_key] == "healthcare"
+
+
+def test_ai_categorize_none_sentinel_cached(stub_ai_cache):
+    """When gpt returns 'none', we cache the literal 'none' so we don't
+    pay for the same bill on the next ingest pass."""
+    import asyncio
+    import config
+    from backend.alerts import state_categories
+
+    stub_client = _make_openai_stub("none")
+    with patch.object(config, "OPENAI_API_KEY", "sk-test"), \
+         patch("openai.AsyncOpenAI", stub_client):
+        result = asyncio.run(state_categories.ai_categorize(
+            "An Act Conveying State Land In Smithville",
+        ))
+    assert result is None
+    cache_key = state_categories._ai_cache_key("An Act Conveying State Land In Smithville", "")
+    assert stub_ai_cache[cache_key] == "none"
+
+
+def test_ai_categorize_garbage_reply_treated_as_none(stub_ai_cache):
+    """Model hallucinates something off-list -> we drop it rather than
+    poisoning the alert pool with a made-up category."""
+    import asyncio
+    import config
+    from backend.alerts import state_categories
+
+    stub_client = _make_openai_stub("transportation")  # not in the 13-cat list
+    with patch.object(config, "OPENAI_API_KEY", "sk-test"), \
+         patch("openai.AsyncOpenAI", stub_client):
+        result = asyncio.run(state_categories.ai_categorize("An Act Concerning Mopeds"))
+    assert result is None
+
+
+def test_ai_categorize_cache_hit_skips_openai(stub_ai_cache):
+    """If the cache already has a result, we don't hit OpenAI at all."""
+    import asyncio
+    import config
+    from backend.alerts import state_categories
+
+    title = "An Act Concerning Cookie Privacy"
+    key = state_categories._ai_cache_key(title, "")
+    stub_ai_cache[key] = "technology"
+
+    called = {"n": 0}
+
+    class _BoomClient:
+        def __init__(self, *_a, **_kw):
+            called["n"] += 1
+            raise AssertionError("should not be called on cache hit")
+
+    with patch.object(config, "OPENAI_API_KEY", "sk-test"), \
+         patch("openai.AsyncOpenAI", _BoomClient):
+        result = asyncio.run(state_categories.ai_categorize(title))
+
+    assert result == "technology"
+    assert called["n"] == 0
+
+
+# ---------- Ingester wiring ----------
+#
+# The federal-ingest tests already cover the regex+skip path. These add the
+# AI-recovery path: when categorize() returns None and ai_categorize() returns
+# a real category, the bill gets written and ai_recovered increments.
+
+
+def test_ingester_uses_ai_fallback_on_regex_miss(app):
+    """A title the regex can't read but the AI can recover should write
+    a row and increment ai_recovered."""
+    import asyncio
+    from datetime import date
+    from unittest.mock import patch
+    from db import connect
+    from backend.alerts.ingest_federal_votes import ingest_federal_votes
+
+    with connect() as conn:
+        conn.execute("DELETE FROM alerts")
+        conn.execute("DELETE FROM scheduled_votes")
+        conn.commit()
+
+    today = date.today()
+    fake_bills = [{
+        "bill_id": "hr-9000-119",
+        # No category keyword in the title; only AI could decide this is healthcare.
+        # Avoid "bridge"/"drug"/"medicare" etc. — they all hit existing regex
+        # patterns. This title uses words that are not in any keyword list.
+        "number": "H.R.9000",
+        "title": "Strategic Synergy Modernization Resilience Act",
+        "status": "Reported by Committee",
+        "status_date": today.isoformat(),
+        "chamber": "house",
+        "congress": 119,
+    }]
+
+    async def fake_get_active_bills(**_kw):
+        return fake_bills
+
+    async def fake_ai_categorize(title, description=""):
+        return "healthcare"
+
+    with patch("api.congress_gov.get_active_bills", new=fake_get_active_bills), \
+         patch("backend.alerts.ingest_federal_votes.ai_categorize", new=fake_ai_categorize):
+        stats = asyncio.run(ingest_federal_votes())
+
+    assert stats["rows_inserted"] == 1
+    assert stats["ai_recovered"] == 1
+    assert stats["uncategorized_skipped"] == 0
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT category FROM scheduled_votes WHERE bill_number = 'H.R.9000'"
+        ).fetchone()
+    assert row["category"] == "healthcare"
+
+
+def test_ingester_ai_miss_still_skips(app):
+    """When AI also returns None, the bill is dropped just like before
+    and uncategorized_skipped increments."""
+    import asyncio
+    from datetime import date
+    from unittest.mock import patch
+    from db import connect
+    from backend.alerts.ingest_federal_votes import ingest_federal_votes
+
+    with connect() as conn:
+        conn.execute("DELETE FROM alerts")
+        conn.execute("DELETE FROM scheduled_votes")
+        conn.commit()
+
+    today = date.today()
+    fake_bills = [{
+        "bill_id": "hr-1-119",
+        "number": "H.R.1",
+        "title": "Procedural Renaming Act",
+        "status": "Reported by Committee",
+        "status_date": today.isoformat(),
+        "chamber": "house",
+        "congress": 119,
+    }]
+
+    async def fake_get_active_bills(**_kw):
+        return fake_bills
+
+    async def fake_ai_categorize(title, description=""):
+        return None
+
+    with patch("api.congress_gov.get_active_bills", new=fake_get_active_bills), \
+         patch("backend.alerts.ingest_federal_votes.ai_categorize", new=fake_ai_categorize):
+        stats = asyncio.run(ingest_federal_votes())
+
+    assert stats["rows_inserted"] == 0
+    assert stats["ai_recovered"] == 0
+    assert stats["uncategorized_skipped"] == 1
+
+
+def test_ingester_regex_hit_skips_ai_entirely(app):
+    """When the regex matches, ai_categorize must not be invoked — both for
+    speed and to keep the API budget honest."""
+    import asyncio
+    from datetime import date
+    from unittest.mock import patch
+    from backend.alerts.ingest_federal_votes import ingest_federal_votes
+
+    with __import__("db").connect() as conn:
+        conn.execute("DELETE FROM alerts")
+        conn.execute("DELETE FROM scheduled_votes")
+        conn.commit()
+
+    today = date.today()
+    fake_bills = [{
+        "bill_id": "s-872-119",
+        "number": "S.872",
+        "title": "Prescription Drug Pricing Reform Act",  # clear healthcare hit
+        "status": "Reported by Committee",
+        "status_date": today.isoformat(),
+        "chamber": "senate",
+        "congress": 119,
+    }]
+
+    called = {"n": 0}
+
+    async def fake_ai_categorize(*_a, **_kw):
+        called["n"] += 1
+        return "economy"  # would be wrong; assertion below proves it never ran
+
+    async def fake_get_active_bills(**_kw):
+        return fake_bills
+
+    with patch("api.congress_gov.get_active_bills", new=fake_get_active_bills), \
+         patch("backend.alerts.ingest_federal_votes.ai_categorize", new=fake_ai_categorize):
+        stats = asyncio.run(ingest_federal_votes())
+
+    assert called["n"] == 0, "regex hit should short-circuit before AI fallback"
+    assert stats["rows_inserted"] == 1
+    assert stats["ai_recovered"] == 0
