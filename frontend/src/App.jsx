@@ -304,6 +304,65 @@ const Loading = ({ label = "Loading..." }) => (
   </div>
 );
 
+// Placeholder layout that mirrors the profile screen's actual shape so the
+// loading state doesn't feel like a blank page. Used by both federal and state
+// profile screens — pass the number of score cards and nav tiles to match the
+// real screen's grid.
+const ProfileSkeleton = ({ scoreCount = 3, tileCount = 5 }) => (
+  <div>
+    <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+      <Shimmer width={56} height={56} borderRadius="50%" />
+      <div style={{ flex: 1 }}>
+        <Shimmer width={140} height={18} style={{ display: "block", marginBottom: 8 }} />
+        <Shimmer width={90} height={12} style={{ display: "block", marginBottom: 4 }} />
+        <Shimmer width={120} height={10} style={{ display: "block" }} />
+      </div>
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${scoreCount}, 1fr)`, gap: 8, marginBottom: 14 }}>
+      {Array.from({ length: scoreCount }).map((_, i) => (
+        <div key={i} style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
+          <Shimmer width={48} height={22} style={{ display: "block", margin: "0 auto 6px" }} />
+          <Shimmer width={40} height={9} style={{ display: "block", margin: "0 auto" }} />
+        </div>
+      ))}
+    </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {Array.from({ length: tileCount }).map((_, i) => (
+        <div key={i} style={{ ...s.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 0 }}>
+          <Shimmer width={36} height={36} borderRadius={8} />
+          <div style={{ flex: 1 }}>
+            <Shimmer width={120} height={13} style={{ display: "block", marginBottom: 6 }} />
+            <Shimmer width={80} height={11} style={{ display: "block" }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+// Card-row placeholder for list-style screens (state legislators, events).
+// `leading` controls the left affordance: an avatar circle, a calendar date
+// chip, etc.
+const ListRowSkeleton = ({ count = 5, leading = "circle" }) => {
+  const leadingNode =
+    leading === "circle" ? <Shimmer width={36} height={36} borderRadius="50%" /> :
+    leading === "square" ? <Shimmer width={44} height={44} borderRadius={8} /> :
+    null;
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} style={{ ...s.card, display: "flex", alignItems: "center", gap: 12 }}>
+          {leadingNode}
+          <div style={{ flex: 1 }}>
+            <Shimmer width={140} height={13} style={{ display: "block", marginBottom: 6 }} />
+            <Shimmer width={90} height={11} style={{ display: "block" }} />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+};
+
 const ErrorBanner = ({ error, onRetry }) => (
   <div style={{ ...s.card, background: colors.redDim, borderColor: colors.red + "44" }}>
     <div style={{ fontSize: 12, fontWeight: 600, color: colors.red, marginBottom: 4 }}>
@@ -566,20 +625,26 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
 };
 
 // 5. DASHBOARD - WIRED TO BACKEND
-// Subtle shimmer component for loading funding numbers
-const Shimmer = ({ width = 40 }) => (
-  <span
-    style={{
-      display: "inline-block",
-      width,
-      height: 16,
-      borderRadius: 4,
-      background: `linear-gradient(90deg, ${colors.border} 0%, ${colors.borderLight} 50%, ${colors.border} 100%)`,
-      backgroundSize: "200% 100%",
-      animation: "shimmer 1.3s ease-in-out infinite",
-      verticalAlign: "middle",
-    }}
-  />
+// Subtle shimmer component for loading funding numbers and skeleton placeholders.
+// Carries its own @keyframes so it animates anywhere it renders, not just under
+// the Dashboard.
+const Shimmer = ({ width = 40, height = 16, borderRadius = 4, style }) => (
+  <>
+    <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+    <span
+      style={{
+        display: "inline-block",
+        width,
+        height,
+        borderRadius,
+        background: `linear-gradient(90deg, ${colors.border} 0%, ${colors.borderLight} 50%, ${colors.border} 100%)`,
+        backgroundSize: "200% 100%",
+        animation: "shimmer 1.3s ease-in-out infinite",
+        verticalAlign: "middle",
+        ...style,
+      }}
+    />
+  </>
 );
 
 // Self-fetching rep card - loads its own funding on mount
@@ -658,17 +723,28 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
     { representatives: [], state: userState || "CT", count: 0 }
   );
 
+  // Real urgent-alert lookup — used to gate the dashboard banner. Falls back
+  // to an empty list when the alerts endpoint is unreachable (e.g. pipeline
+  // hasn't run yet), in which case `alertsOffline === true`.
+  const { data: alertData, offline: alertsOffline } = useApi(
+    () => api.getAlerts({ urgentOnly: true, limit: 1 }),
+    [],
+    { alerts: [] }
+  );
+
   const reps = data?.representatives || [];
+  const realUrgent = alertData?.alerts?.[0] || null;
+  const isOffline = offline || alertsOffline;
+  // When the backend is completely unreachable we still show a sample banner
+  // so the demo experience stays compelling; otherwise we hide it unless a
+  // real urgent alert exists.
+  const bannerAlert = realUrgent
+    ? { text: realUrgent.headline || realUrgent.text, urgent: true }
+    : (isOffline && SAMPLE.alerts[0] ? { text: SAMPLE.alerts[0].text, urgent: true } : null);
 
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
-      <style>{`
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-      `}</style>
       <div style={s.header}>
         <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Your Representatives</h1>
         <p style={s.headerSub}>
@@ -676,19 +752,22 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
         </p>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
-        {/* Urgent Alert Banner */}
-        <div style={{ ...s.card, background: colors.redDim, borderColor: colors.red + "44", marginBottom: 14 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <Icon type="alert" size={16} color={colors.red} />
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: colors.red, marginBottom: 4 }}>URGENT</div>
-              <div style={{ fontSize: 12, lineHeight: 1.4 }}>{SAMPLE.alerts[0].text}</div>
-              <button style={{ ...s.btn("outline"), marginTop: 8, padding: "6px 12px", fontSize: 11, width: "auto", color: colors.red, borderColor: colors.red }} onClick={() => onNav(SCREENS.ALERTS)}>
-                See All Alerts
-              </button>
+        {/* Urgent Alert Banner — only shown when there's a real urgent alert
+            or when the backend is offline (sample fallback for demo). */}
+        {bannerAlert && (
+          <div style={{ ...s.card, background: colors.redDim, borderColor: colors.red + "44", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <Icon type="alert" size={16} color={colors.red} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.red, marginBottom: 4 }}>URGENT</div>
+                <div style={{ fontSize: 12, lineHeight: 1.4 }}>{bannerAlert.text}</div>
+                <button style={{ ...s.btn("outline"), marginTop: 8, padding: "6px 12px", fontSize: 11, width: "auto", color: colors.red, borderColor: colors.red }} onClick={() => onNav(SCREENS.ALERTS)}>
+                  See All Alerts
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {loading && <Loading label="Fetching your representatives..." />}
         {error && <ErrorBanner error={error} onRetry={reload} />}
@@ -886,9 +965,9 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
     return (
       <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
         <StatusBar offline={offline} />
-        <div style={{ ...s.body }}>
+        <div style={{ ...s.body, paddingBottom: 70 }}>
           <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} label="Dashboard" />
-          <Loading label="Loading profile..." />
+          <ProfileSkeleton scoreCount={3} tileCount={5} />
         </div>
         <NavBar active={SCREENS.SEARCH} onNav={onNav} />
       </div>
@@ -1113,6 +1192,13 @@ const PROMISE_STYLE = {
   UNCLEAR: { bg: colors.blueDim,   border: colors.blue   + "55", color: colors.textMuted },
 };
 
+const PROMISE_RUNG_STYLE = {
+  primary:     { label: "Official site",                 color: colors.green },
+  noscript:    { label: "Official site (SPA fallback)",  color: colors.green },
+  wikipedia:   { label: "Wikipedia",                     color: colors.blue  },
+  ballotpedia: { label: "Ballotpedia",                   color: colors.blue  },
+};
+
 const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
   const p = profileData?.profile || SAMPLE.profile.profile;
   const id = bioguideId || p.bioguide_id;
@@ -1133,6 +1219,7 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
   const aiAvailable = data?.ai_available ?? true;
   const promises = promiseData?.promises || null;
   const promiseSourceUrl = promiseData?.source_url || p.website || "";
+  const promiseSourceRung = promiseData?.source_rung || null;
 
   const renderStanceCard = (stance, i) => {
     const score = stance.score || "PENDING";
@@ -1209,8 +1296,17 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
               <>
                 {promises.map(renderPromiseCard)}
                 {promiseSourceUrl && (
-                  <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginBottom: 16, lineHeight: 1.5 }}>
-                    Promises extracted from <a href={promiseSourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{promiseSourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.
+                  <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginBottom: 16, lineHeight: 1.5, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                    {PROMISE_RUNG_STYLE[promiseSourceRung] && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.5,
+                        color: PROMISE_RUNG_STYLE[promiseSourceRung].color,
+                        background: colors.surface,
+                        border: `1px solid ${PROMISE_RUNG_STYLE[promiseSourceRung].color}66`,
+                        borderRadius: 4, padding: "2px 6px",
+                      }}>{PROMISE_RUNG_STYLE[promiseSourceRung].label}</span>
+                    )}
+                    <span>Promises extracted from <a href={promiseSourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{promiseSourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.</span>
                   </div>
                 )}
               </>
@@ -1307,8 +1403,8 @@ const TakeActionScreen = ({ onNav, profileData }) => {
           { icon: "phone", label: "Call Their Office", sub: contact.phone || "No phone available", color: colors.green, action: contact.phone ? `tel:${contact.phone}` : null },
           { icon: "mail", label: "Contact Form", sub: "Official contact page", color: colors.blue, action: contact.contact_form || contact.website },
           { icon: "megaphone", label: "Visit Their Website", sub: contact.website || "No website available", color: colors.purple, action: contact.website },
-        ].map((m, i) => (
-          <a key={i} href={m.action || "#"} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+        ].map((m, i) => {
+          const cardInner = (
             <div style={{ ...s.card, cursor: m.action ? "pointer" : "not-allowed", display: "flex", alignItems: "center", gap: 12, opacity: m.action ? 1 : 0.5 }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: m.color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <Icon type={m.icon} size={18} color={m.color} />
@@ -1318,8 +1414,20 @@ const TakeActionScreen = ({ onNav, profileData }) => {
                 <div style={{ fontSize: 11, color: colors.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.sub}</div>
               </div>
             </div>
-          </a>
-        ))}
+          );
+          if (m.action) {
+            return (
+              <a key={i} href={m.action} target="_blank" rel="noreferrer" aria-label={m.label} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+                {cardInner}
+              </a>
+            );
+          }
+          return (
+            <div key={i} role="group" aria-disabled="true" aria-label={`${m.label} — not available`} style={{ display: "block" }}>
+              {cardInner}
+            </div>
+          );
+        })}
 
         <div style={s.divider} />
 
@@ -1365,14 +1473,22 @@ const ContactRepScreen = ({ onNav, userState }) => {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {p.phone && (
                 <a href={`tel:${p.phone}`} style={{ textDecoration: "none" }}>
-                  <button style={{ ...s.btn("outline"), padding: "6px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" }}>
+                  <button
+                    aria-label={`Call ${p.name}`}
+                    title={`Call ${p.phone}`}
+                    style={{ ...s.btn("outline"), padding: "6px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" }}
+                  >
                     <Icon type="phone" size={12} /> Call
                   </button>
                 </a>
               )}
               {p.website && (
                 <a href={p.website} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                  <button style={{ ...s.btn("outline"), padding: "6px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" }}>
+                  <button
+                    aria-label={`Visit ${p.name}'s website`}
+                    title={p.website}
+                    style={{ ...s.btn("outline"), padding: "6px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" }}
+                  >
                     <Icon type="mail" size={12} /> Website
                   </button>
                 </a>
@@ -1562,7 +1678,7 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
             </div>
           </div>
         )}
-        {loading && <Loading label="Loading upcoming events..." />}
+        {loading && <ListRowSkeleton count={5} leading="square" />}
         {error && <ErrorBanner error={error} onRetry={reload} />}
         {!loading && !error && events.length === 0 && (
           <div style={s.card}>
@@ -1993,7 +2109,7 @@ const StateRepsScreen = ({ onNav, userState, onSelectStateRep }) => {
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} label="Dashboard" />
-        {loading && <Loading label="Loading state legislators..." />}
+        {loading && <ListRowSkeleton count={6} leading="circle" />}
         {error && <ErrorBanner error={error} onRetry={reload} />}
         {!loading && !error && reps.length === 0 && (
           <div style={{ ...s.card, textAlign: "center" }}>
@@ -2062,9 +2178,9 @@ const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
     return (
       <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
         <StatusBar offline={offline} />
-        <div style={{ ...s.body }}>
+        <div style={{ ...s.body, paddingBottom: 70 }}>
           <BackButton onClick={() => onNav(SCREENS.STATE_REPS)} label="State Reps" />
-          <Loading label="Loading legislator..." />
+          <ProfileSkeleton scoreCount={2} tileCount={4} />
         </div>
         <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
       </div>
@@ -2320,6 +2436,13 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
   const aiAvailable = data?.ai_available ?? true;
   const scraped = data?.scraped ?? false;
   const sourceUrl = data?.source_url || "";
+  const sourceRung = data?.source_rung || null;
+  const sourceChip = (() => {
+    if (sourceRung === "primary" && /ballotpedia\.org/i.test(sourceUrl)) {
+      return { label: "Official bio (Ballotpedia)", color: colors.blue };
+    }
+    return PROMISE_RUNG_STYLE[sourceRung] || null;
+  })();
 
   const renderPromiseCard = (promise, i) => {
     const status = promise.status || "UNCLEAR";
@@ -2377,8 +2500,17 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
           <>
             {promises.map(renderPromiseCard)}
             {sourceUrl && (
-              <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
-                Promises extracted from <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{sourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.
+              <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                {sourceChip && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.5,
+                    color: sourceChip.color,
+                    background: colors.surface,
+                    border: `1px solid ${sourceChip.color}66`,
+                    borderRadius: 4, padding: "2px 6px",
+                  }}>{sourceChip.label}</span>
+                )}
+                <span>Promises extracted from <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{sourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.</span>
               </div>
             )}
           </>
