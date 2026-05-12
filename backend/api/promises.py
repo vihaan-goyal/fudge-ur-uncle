@@ -36,6 +36,16 @@ MAX_PAGE_BYTES = 600_000      # cap per page to avoid pulling huge assets
 MAX_TEXT_CHARS = 14_000       # cap final text fed to GPT
 PER_PAGE_TIMEOUT = 8.0
 
+# Fallback rungs (Track 2 — static ladder). Each rung is a separate static
+# fetch attempted only when the prior rung's text is below MIN_USABLE_CHARS,
+# so reps with a working .gov site cost nothing extra.
+MIN_USABLE_CHARS = 400
+WIKIPEDIA_BASE = "https://en.wikipedia.org/wiki/"
+BALLOTPEDIA_BASE = "https://ballotpedia.org/"
+# Wikipedia asks bots to stay polite; one fetch per rep with a small pause is
+# well inside their etiquette guidelines.
+WIKI_FETCH_PAUSE_S = 0.5
+
 
 def _strip_html(html_text: str) -> str:
     """Strip HTML to readable plain text. Regex-based, no BeautifulSoup needed."""
@@ -95,6 +105,147 @@ async def scrape_site(website: str) -> str:
     return combined[:MAX_TEXT_CHARS]
 
 
+# ---- Fallback ladder helpers (Track 2) ---------------------------
+
+async def _fetch_raw_html(client: httpx.AsyncClient, url: str) -> str:
+    """Single-URL static fetch returning the raw HTML body (capped). Empty on
+    any failure. Used for noscript/JSON-LD extraction, where the regex strip
+    would otherwise destroy the structured fragments we want to keep."""
+    try:
+        resp = await client.get(url, timeout=PER_PAGE_TIMEOUT, follow_redirects=True)
+        if resp.status_code != 200:
+            return ""
+        ctype = resp.headers.get("content-type", "")
+        if "html" not in ctype.lower():
+            return ""
+        return resp.text[:MAX_PAGE_BYTES]
+    except Exception:
+        return ""
+
+
+def _collect_jsonld_strings(node) -> list[str]:
+    """Walk a JSON-LD blob and collect long-ish string values. SEO-aware sites
+    often embed issue blurbs in @graph / description / articleBody fields."""
+    out: list[str] = []
+    if isinstance(node, dict):
+        for v in node.values():
+            out.extend(_collect_jsonld_strings(v))
+    elif isinstance(node, list):
+        for item in node:
+            out.extend(_collect_jsonld_strings(item))
+    elif isinstance(node, str):
+        s = node.strip()
+        # Drop short ids/urls/labels — they aren't policy text.
+        if len(s) > 40 and not s.startswith(("http://", "https://", "@")):
+            out.append(s)
+    return out
+
+
+def _extract_jsonld_and_noscript(html_text: str) -> str:
+    """Pull readable text from <noscript> blocks and JSON-LD <script> blocks
+    that `_strip_html` deliberately discards. SPAs that render via JS often
+    ship a server-rendered SEO fallback in these fragments."""
+    if not html_text:
+        return ""
+    parts: list[str] = []
+
+    for m in re.finditer(r"<noscript[^>]*>(.*?)</noscript>",
+                          html_text, flags=re.DOTALL | re.IGNORECASE):
+        cleaned = _strip_html(m.group(1))
+        if cleaned:
+            parts.append(cleaned)
+
+    for m in re.finditer(
+        r"<script[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
+        html_text, flags=re.DOTALL | re.IGNORECASE,
+    ):
+        raw = m.group(1).strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        strings = _collect_jsonld_strings(data)
+        if strings:
+            parts.append("\n".join(strings))
+
+    return "\n\n".join(parts).strip()
+
+
+def _name_to_slug(name: str) -> str:
+    """Wikipedia/Ballotpedia URLs replace spaces with underscores. Strip
+    trailing periods (initials) so 'John Q. Public' -> 'John_Q._Public'
+    is preserved while 'John Public.' -> 'John_Public'."""
+    cleaned = (name or "").strip().rstrip(".")
+    return cleaned.replace(" ", "_") if cleaned else ""
+
+
+async def _scrape_with_fallbacks(
+    name: str, website: str,
+) -> tuple[str, str, list[str]]:
+    """Try a ladder of static sources for the rep's policy positions.
+
+    Order: primary site (homepage + issue paths) -> JSON-LD/noscript on
+    primary homepage -> Wikipedia -> Ballotpedia. Stops at the first rung
+    returning >= MIN_USABLE_CHARS of plain text.
+
+    Returns (text, source_url, attempted). `attempted` lists every rung that
+    was tried (whether or not it succeeded) so callers can surface why a
+    `scraped: false` happened.
+    """
+    attempted: list[str] = []
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; FudgeUrUncle/0.1; civic-research)"}
+
+    # Rung 1: existing path. scrape_site opens its own AsyncClient.
+    primary_text = ""
+    if website:
+        attempted.append("primary")
+        primary_text = await scrape_site(website)
+        if len(primary_text) >= MIN_USABLE_CHARS:
+            return primary_text, website, attempted
+
+    async with httpx.AsyncClient(headers=headers) as client:
+        # Rung 2: JSON-LD + noscript on the primary homepage, merged with
+        # whatever rung 1 *did* find. A SPA that ships SEO text in JSON-LD
+        # combined with a thin scrape often clears the threshold.
+        if website:
+            attempted.append("noscript")
+            raw = await _fetch_raw_html(client, website.rstrip("/"))
+            extracted = _extract_jsonld_and_noscript(raw)
+            if extracted:
+                combined = (primary_text + "\n\n" + extracted) if primary_text else extracted
+                combined = combined[:MAX_TEXT_CHARS]
+                if len(combined) >= MIN_USABLE_CHARS:
+                    return combined, website, attempted
+
+        slug = _name_to_slug(name)
+        if slug:
+            # Rung 3: Wikipedia. Static, indexed, has "Political positions"
+            # sections for most federal reps and many state senators.
+            wiki_url = WIKIPEDIA_BASE + slug
+            attempted.append("wikipedia")
+            await asyncio.sleep(WIKI_FETCH_PAUSE_S)
+            wiki_raw = await _fetch_raw_html(client, wiki_url)
+            wiki_text = _strip_html(wiki_raw) if wiki_raw else ""
+            if len(wiki_text) >= MIN_USABLE_CHARS:
+                return wiki_text[:MAX_TEXT_CHARS], wiki_url, attempted
+
+            # Rung 4: Ballotpedia. State reps already had this as rung 1 via
+            # `state_sites.derive_website`, so skip when it matches.
+            ballot_url = BALLOTPEDIA_BASE + slug
+            if ballot_url != website:
+                attempted.append("ballotpedia")
+                ballot_raw = await _fetch_raw_html(client, ballot_url)
+                ballot_text = _strip_html(ballot_raw) if ballot_raw else ""
+                if len(ballot_text) >= MIN_USABLE_CHARS:
+                    return ballot_text[:MAX_TEXT_CHARS], ballot_url, attempted
+
+    # All rungs exhausted. Return the best we have (might still be < threshold)
+    # alongside the attempted list so the caller can decide what to do.
+    return primary_text, website or "", attempted
+
+
 async def get_promises(
     cache_key: str,
     name: str,
@@ -116,9 +267,12 @@ async def get_promises(
     if cached is not None:
         return cached
 
-    site_text = await scrape_site(website)
-    if len(site_text) < 400:
-        print(f"[promises] {cache_key}: not enough scraped text ({len(site_text)} chars)")
+    site_text, source_url, attempted = await _scrape_with_fallbacks(name, website)
+    if len(site_text) < MIN_USABLE_CHARS:
+        print(
+            f"[promises] {cache_key}: all rungs failed (attempted={attempted}, "
+            f"best={len(site_text)} chars)"
+        )
         return None
 
     party_label = {"D": "Democrat", "R": "Republican", "I": "Independent"}.get(party, party)
@@ -174,11 +328,15 @@ async def get_promises(
 
         result = {
             "promises": promises,
-            "source_url": website,
+            "source_url": source_url or website,
+            "source_rung": attempted[-1] if attempted else None,
             "scraped_chars": len(site_text),
         }
         ai_cache.set(cache_key, result)
-        print(f"[promises] {cache_key}: extracted {len(promises)} promises from {len(site_text)} chars")
+        print(
+            f"[promises] {cache_key}: extracted {len(promises)} promises from "
+            f"{len(site_text)} chars via rung={result['source_rung']}"
+        )
         return result
     except Exception as e:
         print(f"[promises] {cache_key} failed ({e})")

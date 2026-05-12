@@ -1218,7 +1218,7 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
             {!promiseLoading && (!promises || promises.length === 0) && (
               <div style={{ ...s.card, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: colors.textMuted }}>
-                  No public promises found on official site. Some legislators publish few stated positions, or use JS-rendered pages we can't read.
+                  No public promises found. We tried the rep's official site, Wikipedia, and Ballotpedia — none had enough stated-position text to extract.
                 </div>
               </div>
             )}
@@ -2368,8 +2368,7 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
         {!loading && aiAvailable && !scraped && (
           <div style={{ ...s.card }}>
             <div style={{ fontSize: 12, color: colors.textMuted, lineHeight: 1.5 }}>
-              No public bio page with enough policy text was found for this legislator.
-              State legislators often don't publish stated positions online.
+              No public bio page with enough policy text was found. We checked Ballotpedia and Wikipedia — state legislators often don't publish stated positions online.
             </div>
           </div>
         )}
