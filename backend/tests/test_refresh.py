@@ -103,8 +103,12 @@ def test_refresh_chains_ingest_then_pipeline(clean_refresh_db):
 
     donation_id = _seed_federal_donation()
 
+    async def _noop_index(*_a, **_kw):
+        return {}
+
     with patch("api.congress_gov.get_active_bills", new=fake_fed), \
-         patch("api.legiscan.get_active_bills", new=fake_state):
+         patch("api.legiscan.get_active_bills", new=fake_state), \
+         patch("api.legiscan.build_state_vote_index", new=_noop_index):
         summary = refresh.run(states=("CT", "NY"))
 
     # Federal ingest landed.
@@ -155,8 +159,12 @@ def test_refresh_continues_when_state_ingest_raises(clean_refresh_db):
 
     _seed_federal_donation()
 
+    async def _noop_index(*_a, **_kw):
+        return {}
+
     with patch("api.congress_gov.get_active_bills", new=fake_fed), \
-         patch("api.legiscan.get_active_bills", new=fake_state_explodes):
+         patch("api.legiscan.get_active_bills", new=fake_state_explodes), \
+         patch("api.legiscan.build_state_vote_index", new=_noop_index):
         summary = refresh.run(states=("CT",))
 
     assert summary["state_stats"]["CT"] is None
@@ -214,8 +222,12 @@ def test_refresh_skip_flags_short_circuit_correctly(clean_refresh_db):
         state_called["n"] += 1
         return []
 
+    async def _noop_index(*_a, **_kw):
+        return {}
+
     with patch("api.congress_gov.get_active_bills", new=fake_fed), \
-         patch("api.legiscan.get_active_bills", new=fake_state):
+         patch("api.legiscan.get_active_bills", new=fake_state), \
+         patch("api.legiscan.build_state_vote_index", new=_noop_index):
         summary = refresh.run(states=("CT",), skip_federal=True, skip_state=True)
 
     assert fed_called["n"] == 0

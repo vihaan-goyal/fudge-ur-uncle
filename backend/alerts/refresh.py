@@ -80,6 +80,27 @@ def _run_state(state: str, lead_days: int) -> dict | None:
         return None
 
 
+def _build_state_vote_index(state: str) -> int | None:
+    """Pre-build the per-state roll-call index so `/votes` endpoints can serve
+    every member, not just bill sponsors. Errors are swallowed — the rest of
+    the pipeline doesn't depend on the index existing.
+
+    Returns the number of members in the built index, or None on failure.
+    """
+    try:
+        from api import legiscan  # type: ignore  # noqa: E402
+    except ImportError:
+        return None
+    print(f"[refresh] === vote-index build (state={state}) ===")
+    try:
+        index = asyncio.run(legiscan.build_state_vote_index(state))
+        return len(index)
+    except Exception as e:
+        print(f"[refresh] vote-index for {state} FAILED: {e}")
+        traceback.print_exc()
+        return None
+
+
 def run(
     states: Iterable[str] = DEFAULT_STATES,
     congress: int = DEFAULT_CONGRESS,
@@ -92,6 +113,7 @@ def run(
     summary = {
         "federal_stats": None,
         "state_stats": {},
+        "state_vote_index_sizes": {},
         "ingest_failures": [],
         "pipeline_stats": None,
     }
@@ -118,6 +140,10 @@ def run(
             summary["state_stats"][state] = stats
             if stats is None:
                 summary["ingest_failures"].append(f"state:{state}")
+            # Build the per-state vote index after ingest so /votes endpoints
+            # cover every member, not just sponsors. Failure here logs but
+            # does not block pipeline.
+            summary["state_vote_index_sizes"][state] = _build_state_vote_index(state)
     else:
         print("[refresh] skipping state ingest (--skip-state)")
 
@@ -127,7 +153,8 @@ def run(
     print("[refresh] === summary ===")
     print(f"  federal: {summary['federal_stats']}")
     for st, st_stats in summary["state_stats"].items():
-        print(f"  state[{st}]: {st_stats}")
+        idx_n = summary["state_vote_index_sizes"].get(st)
+        print(f"  state[{st}]: {st_stats} | vote_index_members={idx_n}")
     if summary["ingest_failures"]:
         print(f"  ingest_failures: {summary['ingest_failures']}")
     print(f"  pipeline: {summary['pipeline_stats']}")

@@ -43,6 +43,17 @@ _VOTES_BILL_LIMIT = 8
 # 6-hour TTL: master list (active bills) shifts within a session as bills
 # advance through chambers, but not so fast that intra-day refresh is needed.
 _BILLS_TTL_HOURS = 6
+# Per-bill / per-roll-call TTL for the vote-index pre-build path. These are
+# fetched in bulk during refresh; 24h matches the index itself so a partial
+# rebuild can reuse the bulk of last run's work.
+_BILL_TTL_HOURS = 24
+_ROLLCALL_TTL_HOURS = 24
+# Per-state vote-index TTL. Bumped on each successful refresh.
+_INDEX_TTL_HOURS = 24
+# How many of the most-recently-active session bills to probe when building
+# the state vote index. At 1.05s/call this drives total build time directly;
+# 120 keeps per-state build under ~4 minutes worst-case.
+_INDEX_BILL_LIMIT = 120
 
 # Bill status codes: see Legiscan docs.
 # We treat "engrossed" (passed one chamber) as the imminent-vote signal.
@@ -335,14 +346,172 @@ async def get_legislator(people_id: int) -> dict | None:
         return SAMPLE_LEGISLATOR_PROFILE.get(people_id)
 
 
+async def _get_bill_cached(bill_id: int) -> dict:
+    """getBill with per-bill 24h ai_cache. Empty dict on upstream failure."""
+    try:
+        bill_id = int(bill_id)
+    except (TypeError, ValueError):
+        return {}
+    cache_key = f"legiscan:bill:{bill_id}"
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        data = await _call("getBill", id=bill_id)
+        bill = data.get("bill") or {}
+    except Exception as e:
+        print(f"[legiscan] getBill({bill_id}) failed ({e})")
+        return {}
+    if bill:
+        ai_cache.set(cache_key, bill, ttl_hours=_BILL_TTL_HOURS)
+    return bill
+
+
+async def _get_rollcall_cached(rc_id: int) -> dict:
+    """getRollCall with per-rc 24h ai_cache. Empty dict on upstream failure."""
+    try:
+        rc_id = int(rc_id)
+    except (TypeError, ValueError):
+        return {}
+    cache_key = f"legiscan:rollcall:{rc_id}"
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        data = await _call("getRollCall", id=rc_id)
+        rc = data.get("roll_call") or {}
+    except Exception as e:
+        print(f"[legiscan] getRollCall({rc_id}) failed ({e})")
+        return {}
+    if rc:
+        ai_cache.set(cache_key, rc, ttl_hours=_ROLLCALL_TTL_HOURS)
+    return rc
+
+
+async def build_state_vote_index(
+    state: str, bill_limit: int = _INDEX_BILL_LIMIT,
+) -> dict[str, list[dict]]:
+    """
+    Build a per-people_id reverse index of recent roll-call votes for `state`
+    and store it at `legiscan:vote_index:{state}` (TTL 24h).
+
+    Strategy: probe the most-recently-active `bill_limit` session bills,
+    pull each bill's roll calls, and record how every member who voted on
+    each call voted. The result is a dict keyed by people_id (as string,
+    for JSON compatibility) mapping to a list of normalized vote rows.
+
+    This is intended to run once per refresh cycle (cron) and feed
+    `get_legislator_votes` for all reps in the state, instead of the old
+    per-rep fan-out that only saw bills the rep sponsored.
+
+    Returns {} on no key / no session / total upstream failure. Caller is
+    expected to log; failure here shouldn't block the rest of the pipeline.
+    """
+    state = state.upper()
+    if not LEGISCAN_API_KEY:
+        return {}
+
+    try:
+        sessions_data = await _call("getSessionList", state=state)
+        sessions = sessions_data.get("sessions") or []
+        if not sessions:
+            return {}
+        current = max(sessions, key=lambda s: s.get("session_id", 0))
+        session_id = current["session_id"]
+
+        master_data = await _call("getMasterList", id=session_id)
+        masterlist = master_data.get("masterlist") or {}
+    except Exception as e:
+        print(f"[legiscan] vote-index masterlist for {state} failed ({e})")
+        return {}
+
+    rows = [v for k, v in masterlist.items() if k != "session" and isinstance(v, dict)]
+    # Most-recently-active first. last_action_date is a 'YYYY-MM-DD' string,
+    # so string-sort works; missing dates sort last.
+    rows.sort(key=lambda r: r.get("last_action_date") or "", reverse=True)
+    rows = rows[:bill_limit]
+
+    bill_ids = [r.get("bill_id") for r in rows if r.get("bill_id")]
+    if not bill_ids:
+        return {}
+
+    bills = await asyncio.gather(*[_get_bill_cached(bid) for bid in bill_ids])
+
+    # rc_id -> (title, date, chamber) so we can decorate the per-member entries.
+    rc_meta: dict[int, tuple[str, str, str]] = {}
+    rc_ids: list[int] = []
+    for bill in bills:
+        title = bill.get("title", "")
+        for rc in bill.get("votes") or []:
+            rc_id = rc.get("roll_call_id")
+            if not rc_id:
+                continue
+            if rc_id in rc_meta:
+                continue  # de-dup if two bills reference the same rc (rare)
+            rc_meta[rc_id] = (
+                title,
+                rc.get("date", ""),
+                rc.get("chamber", ""),
+            )
+            rc_ids.append(rc_id)
+
+    if not rc_ids:
+        # No roll calls in the recent activity window. Cache the empty index
+        # so we don't repeatedly chew rate-limit budget on a quiet session.
+        ai_cache.set(f"legiscan:vote_index:{state}", {}, ttl_hours=_INDEX_TTL_HOURS)
+        print(f"[legiscan] vote-index {state}: 0 roll calls across {len(bills)} bills")
+        return {}
+
+    rolls = await asyncio.gather(*[_get_rollcall_cached(rc_id) for rc_id in rc_ids])
+
+    index: dict[str, list[dict]] = {}
+    for rc_id, rc in zip(rc_ids, rolls):
+        if not rc:
+            continue
+        title, fallback_date, fallback_chamber = rc_meta[rc_id]
+        date = rc.get("date") or fallback_date
+        chamber = rc.get("chamber") or fallback_chamber
+        category = _categorize_title(title) or ""
+        for v in rc.get("votes") or []:
+            pid = v.get("people_id")
+            if not pid:
+                continue
+            entry = {
+                "title": title,
+                "date": date,
+                "member_vote": v.get("vote_text", ""),
+                "category": category,
+                "chamber": chamber,
+            }
+            index.setdefault(str(pid), []).append(entry)
+
+    # Sort each member's votes newest-first.
+    for pid, entries in index.items():
+        entries.sort(key=lambda e: e.get("date", ""), reverse=True)
+
+    ai_cache.set(f"legiscan:vote_index:{state}", index, ttl_hours=_INDEX_TTL_HOURS)
+    print(
+        f"[legiscan] vote-index {state}: {len(index)} members across "
+        f"{len(rc_ids)} roll calls from {len(bills)} bills"
+    )
+    return index
+
+
 async def get_legislator_votes(people_id: int) -> list[dict]:
     """
     Return recent roll-call votes for a state legislator, normalized to the
     same shape as federal votes (title/date/member_vote/category) so the
     shared formatters in api.congress_gov can consume them.
 
-    Strategy: fetch bill detail for the rep's most recent sponsored bills,
-    pick the latest roll call on each, and record how this legislator voted.
+    Strategy: read the pre-built state vote index (built by
+    `build_state_vote_index` during the refresh cycle) and return this
+    rep's slice. The index covers any member who voted on a recent session
+    bill — sponsor or not — which closes the "empty backbencher" gap.
+
+    Falls back to the sponsored-only probe when the index is missing
+    (cold cache, fresh deploy). The fallback can leave non-sponsors with
+    no votes; refresh restores the full picture.
+
     Cached 24h. Returns [] when no key, no bills, or on upstream failure.
     """
     try:
@@ -362,21 +531,32 @@ async def get_legislator_votes(people_id: int) -> list[dict]:
     if not profile:
         return []
 
+    # ----- Fast path: read from the pre-built state vote index. -----
+    state = (profile.get("state") or "").upper()
+    if state:
+        index = ai_cache.get(f"legiscan:vote_index:{state}")
+        if index:
+            rows = index.get(str(people_id)) or []
+            if rows:
+                # Cache the rep-slice for symmetry with the fallback path and
+                # to short-circuit subsequent lookups even if the index expires.
+                ai_cache.set(cache_key, rows, ttl_hours=_VOTES_TTL_HOURS)
+                return rows
+            # Member appeared in the index build but cast no votes in the
+            # window — still a real answer, no need to fall back.
+            ai_cache.set(cache_key, [], ttl_hours=_VOTES_TTL_HOURS)
+            return []
+
+    # ----- Fallback: original sponsored-only probe. -----
+    # Used when refresh hasn't built the index yet (fresh deploy, first
+    # day of a new session). Returns [] for non-sponsors, same as before.
     sponsored = [b for b in (profile.get("sponsored_bills") or []) if b.get("bill_id")]
     sponsored = sponsored[:_VOTES_BILL_LIMIT]
     if not sponsored:
         ai_cache.set(cache_key, [], ttl_hours=_VOTES_TTL_HOURS)
         return []
 
-    async def _bill(bill_id: int) -> dict:
-        try:
-            data = await _call("getBill", id=bill_id)
-            return data.get("bill") or {}
-        except Exception as e:
-            print(f"[legiscan] getBill({bill_id}) failed ({e})")
-            return {}
-
-    bill_details = await asyncio.gather(*[_bill(b["bill_id"]) for b in sponsored])
+    bill_details = await asyncio.gather(*[_get_bill_cached(b["bill_id"]) for b in sponsored])
 
     # For each bill with roll calls, take the newest one and record which
     # roll-call id maps to which bill title.
@@ -401,15 +581,7 @@ async def get_legislator_votes(people_id: int) -> list[dict]:
         ai_cache.set(cache_key, [], ttl_hours=_VOTES_TTL_HOURS)
         return []
 
-    async def _roll_call(rc_id: int) -> dict:
-        try:
-            data = await _call("getRollCall", id=rc_id)
-            return data.get("roll_call") or {}
-        except Exception as e:
-            print(f"[legiscan] getRollCall({rc_id}) failed ({e})")
-            return {}
-
-    roll_calls = await asyncio.gather(*[_roll_call(rc_id) for rc_id in rc_ids])
+    roll_calls = await asyncio.gather(*[_get_rollcall_cached(rc_id) for rc_id in rc_ids])
 
     results: list[dict] = []
     for rc_id, rc in zip(rc_ids, roll_calls):
