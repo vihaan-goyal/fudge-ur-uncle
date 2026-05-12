@@ -7,8 +7,8 @@
 //   the React bundle and lets the offline error states render.
 // - Network-first for everything else; fall back to cache for the shell.
 
-const CACHE = "fuu-shell-v2";
-const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
+const CACHE = "fuu-shell-v3";
+const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-192-v2.png", "/icon-512-v2.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
