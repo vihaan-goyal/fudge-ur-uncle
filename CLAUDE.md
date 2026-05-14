@@ -31,6 +31,8 @@ frontend/
   src/
     main.jsx api.js
     App.jsx          # all 23 screens + routing in one file (deliberate)
+    groupAlerts.js   # client-side alert grouping (extracted for unit tests)
+    copy.js          # centralized user-facing strings (tone swap-point)
 ```
 
 ## Run Commands
@@ -76,7 +78,9 @@ Tests use `FUU_DB_PATH` (set by conftest) so they don't clobber dev data.
 
 **Frontend has graceful fallback.** Every screen wraps API calls in try/catch and falls back to embedded sample data with an "OFFLINE" badge. Don't remove — it's how the app stays demoable. `apiRequest` auto-clears localStorage on 401 (only when a token was actually sent), preventing dead-token retry loops.
 
-**Single-file frontend.** `App.jsx` holds all 23 screens. Inline `style={s.foo}` against a shared `s` map. Screen routing via `currentScreen` state + `SCREENS` enum, not React Router. Don't split casually.
+**Single-file frontend.** `App.jsx` holds all 23 screens. Inline `style={s.foo}` against a shared `s` map. Screen routing via `currentScreen` state + `SCREENS` enum, not React Router. Don't split casually. Two narrow exceptions are extracted modules: `groupAlerts.js` (testable in isolation, covered by vitest) and `copy.js` (centralized user-facing strings — single swap-point for tone, currently leans "friendly to new voters / immigrants" rather than the original accountability framing). New user-visible strings on the dashboard should go through `COPY` so the tone stays consistent.
+
+**Dashboard is an orientation surface, not an alerts feed.** The home screen targets new voters / immigrants learning the system, not the original accountability-watchdog audience. Order is Start here (quick actions) → Coming up → Your reps. The greeting ("Hey {first}" / "Hi there") lives inside the scrollable body — not a fixed header band — so it scrolls away with content. Section titles use `s.sectionTitleFriendly` (sans, sentence case) only here; deeper screens keep `s.sectionTitle` (mono uppercase) for the terminal look. "Coming up" reuses `/api/alerts` with `urgentOnly: false, limit: 6` and dedupes by `bill_number` (alerts pair donations with votes, so the same bill repeats per donor industry) — a dedicated upcoming-votes endpoint is deferred. The old red URGENT banner was removed: it duplicated the Alerts-tab destination and read as scandal-detection on a learning surface.
 
 **Alerts are grouped client-side.** Pipeline writes one row per (donation × vote) pair, so a single donor in one category produces N near-identical cards (same headline, only bill differs). `groupAlerts()` (extracted to `frontend/src/groupAlerts.js` so it can be tested in isolation; covered by `groupAlerts.test.js` under vitest) collapses by `(actor_id, industry, category)`, takes the highest-scoring row as the lead, and rolls the rest into a bill list ("N upcoming {category} bills · $X lifetime" + first 3 bills + "(+K more)"). Both `AlertsScreen` and `StateRepAlertsScreen` use it. Singleton groups (or `SAMPLE.alerts` rows missing `donation`/`vote` fields) render the original body unchanged — solo entries key on `id` so they never collide.
 
