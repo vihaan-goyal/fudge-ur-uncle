@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { api, auth, SAMPLE } from "./api.js";
 import { groupAlerts } from "./groupAlerts.js";
+import { COPY, friendlyCategory } from "./copy.js";
 
 // ============================================================
 // CONSTANTS
@@ -190,6 +191,12 @@ const s = {
     alignItems: "center", gap: 4,
   },
   section: { marginBottom: 16 },
+  // Friendlier section heading — used on screens aimed at new voters (the
+  // dashboard, mostly). Sentence-case sans, no terminal-style uppercase.
+  sectionTitleFriendly: {
+    fontSize: 14, fontWeight: 600, fontFamily: fontSans,
+    color: colors.text, marginBottom: 10,
+  },
   sectionTitle: {
     fontSize: 11, fontWeight: 700, fontFamily: font,
     color: colors.textMuted, textTransform: "uppercase",
@@ -717,56 +724,122 @@ const RepCard = ({ rep, onClick }) => {
 };
 
 // 5. DASHBOARD - WIRED TO BACKEND (streaming)
-const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
+const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser }) => {
   const { data, loading, error, offline, reload } = useApi(
     () => api.getRepsByState(userState || "CT"),
     [userState],
     { representatives: [], state: userState || "CT", count: 0 }
   );
 
-  // Real urgent-alert lookup — used to gate the dashboard banner. Falls back
-  // to an empty list when the alerts endpoint is unreachable (e.g. pipeline
-  // hasn't run yet), in which case `alertsOffline === true`.
+  // "Coming up" feed — pulls a small batch of alerts and reframes them as
+  // upcoming votes (no scandal framing, just "here's what's happening").
+  // Not urgent-only so newcomers see actual activity, not just flagged pairs.
   const { data: alertData, offline: alertsOffline } = useApi(
-    () => api.getAlerts({ urgentOnly: true, limit: 1 }),
+    () => api.getAlerts({ urgentOnly: false, limit: 6 }),
     [],
     { alerts: [] }
   );
 
   const reps = data?.representatives || [];
-  const realUrgent = alertData?.alerts?.[0] || null;
   const isOffline = offline || alertsOffline;
-  // When the backend is completely unreachable we still show a sample banner
-  // so the demo experience stays compelling; otherwise we hide it unless a
-  // real urgent alert exists.
-  const bannerAlert = realUrgent
-    ? { text: realUrgent.headline || realUrgent.text, urgent: true }
-    : (isOffline && SAMPLE.alerts[0] ? { text: SAMPLE.alerts[0].text, urgent: true } : null);
+
+  const rawAlerts = alertData?.alerts?.length
+    ? alertData.alerts
+    : (isOffline ? SAMPLE.alerts.filter((a) => a.vote) : []);
+
+  // Dedupe by bill_number — alerts pair a donation with a vote, so the same
+  // bill can appear multiple times (one per donor industry). For "coming up"
+  // we only care about the bill itself.
+  const upcoming = [];
+  const seenBills = new Set();
+  for (const a of rawAlerts) {
+    const bill = a.vote?.bill_number;
+    const category = a.vote?.category;
+    if (!category) continue;
+    const key = bill || `${category}-${a.id}`;
+    if (seenBills.has(key)) continue;
+    seenBills.add(key);
+    upcoming.push({ id: a.id, billNumber: bill, category });
+    if (upcoming.length >= 3) break;
+  }
 
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
-      <div style={s.header}>
-        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Your Representatives</h1>
-        <p style={s.headerSub}>
-          State: {userState || "CT"} {offline && "(backend offline)"}
-        </p>
-      </div>
-      <div style={{ ...s.body, paddingBottom: 70 }}>
-        {/* Urgent Alert Banner — only shown when there's a real urgent alert
-            or when the backend is offline (sample fallback for demo). */}
-        {bannerAlert && (
-          <div style={{ ...s.card, background: colors.redDim, borderColor: colors.red + "44", marginBottom: 14 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-              <Icon type="alert" size={16} color={colors.red} />
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: colors.red, marginBottom: 4 }}>URGENT</div>
-                <div style={{ fontSize: 12, lineHeight: 1.4 }}>{bannerAlert.text}</div>
-                <button style={{ ...s.btn("outline"), marginTop: 8, padding: "6px 12px", fontSize: 11, width: "auto", color: colors.red, borderColor: colors.red }} onClick={() => onNav(SCREENS.ALERTS)}>
-                  See All Alerts
-                </button>
+      <div style={{ ...s.body, paddingTop: 16, paddingBottom: 70 }}>
+        {/* Greeting lives inside the scrollable body (not in a fixed
+            header band) so it scrolls away with the content rather than
+            sticking at the top. */}
+        <div style={{ marginBottom: 18 }}>
+          <h1 style={{ ...s.headerTitle, fontSize: 22, fontFamily: fontSans, textTransform: "none", letterSpacing: 0, margin: 0 }}>
+            {COPY.dashboard.greeting(currentUser?.name)}
+          </h1>
+          <p style={{ ...s.headerSub, fontSize: 12, marginTop: 2, marginBottom: 0 }}>
+            {COPY.dashboard.greetingSub(userState || "CT")} {offline && "· offline"}
+          </p>
+        </div>
+
+        {/* Quick Actions first — action-first onboarding for new voters: the
+            verbs you can take are the most useful starting point. */}
+        <div style={s.section}>
+          <div style={s.sectionTitleFriendly}>{COPY.dashboard.quickActionsTitle}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[
+              { icon: "phone", label: COPY.dashboard.quickActions.contactRep, screen: SCREENS.CONTACT_REP },
+              { icon: "vote", label: COPY.dashboard.quickActions.votingGuide, screen: SCREENS.LEARN_TO_VOTE },
+              { icon: "calendar", label: COPY.dashboard.quickActions.events, screen: SCREENS.EVENTS },
+              { icon: "dollar", label: COPY.dashboard.quickActions.followMoney, screen: SCREENS.SEARCH },
+              { icon: "home", label: COPY.dashboard.quickActions.stateReps, screen: SCREENS.STATE_REPS },
+            ].map((a) => (
+              <button key={a.label} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginBottom: 0 }} onClick={() => onNav(a.screen)}>
+                <Icon type={a.icon} size={16} color={colors.accent} />
+                <span style={{ fontSize: 12, fontFamily: font }}>{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Coming up — one card, tight rows. Section header carries the
+            framing so we don't repeat "Your reps will weigh in on" per row.
+            The whole card is one tap target into the alerts feed. */}
+        {upcoming.length > 0 && (
+          <div style={s.section}>
+            <div style={s.sectionTitleFriendly}>{COPY.dashboard.comingUpTitle}</div>
+            <button
+              style={{
+                ...s.card,
+                cursor: "pointer",
+                textAlign: "left",
+                width: "100%",
+                padding: "10px 14px",
+              }}
+              onClick={() => onNav(SCREENS.ALERTS)}
+            >
+              <div style={{ fontSize: 10, color: colors.textMuted, marginBottom: 6, letterSpacing: 0.3, fontFamily: font }}>
+                {COPY.dashboard.comingUpSubtitle}
               </div>
-            </div>
+              {upcoming.map((u, i) => (
+                <div
+                  key={u.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "6px 0",
+                    borderTop: i === 0 ? "none" : `1px solid ${colors.border}`,
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 500, fontFamily: fontSans, color: colors.text }}>
+                    {friendlyCategory(u.category)}
+                  </span>
+                  {u.billNumber && (
+                    <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
+                      {u.billNumber}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </button>
           </div>
         )}
 
@@ -783,7 +856,7 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
 
         {!loading && !error && reps.length > 0 && (
           <div style={s.section}>
-            <div style={s.sectionTitle}>Your Officials ({reps.length})</div>
+            <div style={s.sectionTitleFriendly}>{COPY.dashboard.repsSectionTitle}</div>
             {reps.map((rep) => (
               <RepCard
                 key={rep.bioguide_id}
@@ -794,23 +867,6 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState }) => {
           </div>
         )}
 
-        <div style={s.section}>
-          <div style={s.sectionTitle}>Quick Actions</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {[
-              { icon: "phone", label: "Contact Rep", screen: SCREENS.CONTACT_REP },
-              { icon: "vote", label: "Voting Guide", screen: SCREENS.LEARN_TO_VOTE },
-              { icon: "calendar", label: "Local Events", screen: SCREENS.EVENTS },
-              { icon: "dollar", label: "Follow Money", screen: SCREENS.SEARCH },
-              { icon: "home", label: "State Legislators", screen: SCREENS.STATE_REPS },
-            ].map((a) => (
-              <button key={a.label} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginBottom: 0 }} onClick={() => onNav(a.screen)}>
-                <Icon type={a.icon} size={16} color={colors.accent} />
-                <span style={{ fontSize: 12, fontFamily: font }}>{a.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
       <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
     </div>
@@ -2763,7 +2819,7 @@ export default function App() {
       case SCREENS.CREATE_ACCOUNT: return <CreateAccountScreen {...common} onSignedIn={handleSignedIn} />;
       case SCREENS.LOGIN: return <LoginScreen {...common} onSignedIn={handleSignedIn} />;
       case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} currentUser={currentUser} onSaveIssues={handleSaveIssues} />;
-      case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} />;
+      case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} currentUser={currentUser} />;
       case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} onSelectStateRep={selectStateRep} userState={userState} />;
       case SCREENS.POLITICIAN_PROFILE: return <PoliticianProfileScreen {...common} bioguideId={selectedBioguideId} onSetProfileData={setProfileData} />;
       case SCREENS.FUNDING: return <FundingScreen {...common} profileData={profileData} />;
