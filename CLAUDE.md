@@ -146,6 +146,8 @@ Tests use `FUU_DB_PATH` (set by conftest) so they don't clobber dev data.
 
 **Backend deploy:** `Procfile` works on Railway/Render/Heroku/Fly. Required for full features: `DATA_GOV_API_KEY`, `OPENAI_API_KEY`, `NEWSAPI_KEY`, `GUARDIAN_API_KEY`, `LEGISCAN_API_KEY`, `FTM_API_KEY`. Frontend needs `VITE_API_BASE=https://your-backend-url` in Vercel env before deploying. CORS is `allow_origins=["*"]` — fine for read-only, tighten if surface changes.
 
+- **Env-var split gotcha:** the backend API keys live on Railway (or wherever the FastAPI app runs); `VITE_API_BASE` lives on **Vercel** because Vite inlines `import.meta.env.*` at build time, not runtime. Adding it to Railway does nothing. Symptom of a missing `VITE_API_BASE` on iOS PWA: login POST fails with "Load failed" — fetch goes to relative `/api/auth/login`, Vercel's SPA rewrite returns `index.html`, and the JSON parse failure presents as a network-style error. Fix is dashboard-only (Vercel → Settings → Environment Variables → Production) + redeploy + delete/reinstall the PWA so the SW picks up the new bundle.
+
 - **Persistence caveat:** SQLite alerts DB lives at `backend/data/whoboughtmyrep.sqlite`. Ephemeral filesystems (Vercel functions, Render free tier) lose data on redeploy — use Railway/Fly volumes/Render paid disk.
 - **Cron caveat:** Railway/Render have native scheduled jobs; Fly uses scheduled machines. `refresh.py` is the entrypoint.
 
