@@ -377,6 +377,63 @@ CATEGORY_KEYWORDS = [
         r"\belectors\b",
         r"\bpresidential elector",
     ]),
+    # foreign_policy is intentionally LAST so it acts as a fallback for the
+    # federal residue described in CLAUDE.md (sanctions/treaty/country-name
+    # bills that have no domestic-policy hook). Putting it earlier would
+    # steal hits like "China Trade Relations Act" -> economy and
+    # "NATO Edge Act" -> defense, which existing tests anchor.
+    ("foreign_policy", [
+        # Foreign-policy machinery
+        r"\bforeign (aid|assistance|policy|affairs|government|nationals?|investment)\b",
+        r"\bforeign agent",
+        r"\bforeign service\b",
+        r"\bstate department\b",
+        r"\bdepartment of state\b",
+        r"\bsecretary of state\b",
+        r"\bambassador",
+        r"\bdiplomatic\b",
+        r"\bdiplomat\b",
+        r"\bsanctions?\b",
+        r"\bembargo",
+        r"\btreaty\b",
+        r"\btreaties\b",
+        r"\busaid\b",
+        r"\bunited nations\b",
+        r"\bextradition\b",
+        r"\bexpatriat",
+        r"\bbilateral\b",
+        r"\bmultilateral\b",
+        r"\btariff",
+        r"\bexport control",
+        r"\barms (sale|export|control|trade)",
+        r"\bhuman rights\b",
+        r"\bglobal magnitsky\b",
+        r"\bmagnitsky\b",
+        # Country / region names — short list of the ones most likely to
+        # appear in 119th-Congress titles. Add cautiously; over-broad country
+        # tokens (e.g., "turkey") risk false positives.
+        r"\bchin(a|ese)\b",
+        r"\brussia(n)?\b",
+        r"\bukraine\b",
+        r"\bukrainian\b",
+        r"\bisrael(i)?\b",
+        r"\bpalestin",
+        r"\btaiwan(ese)?\b",
+        r"\bnorth korea\b",
+        r"\bdprk\b",
+        r"\biran(ian)?\b",
+        r"\bsyria(n)?\b",
+        r"\bafghan",
+        r"\bvenezuela",
+        r"\bcuban?\b",
+        r"\bsaudi\b",
+        r"\byemen",
+        r"\bsudan",
+        r"\bhouthi",
+        r"\bhamas\b",
+        r"\bhezbollah\b",
+        r"\buyghur",
+    ]),
 ]
 
 
@@ -419,7 +476,7 @@ async def ai_categorize(title: str, description: str = "") -> str | None:
     """
     Fallback categorizer for bills that didn't match any keyword regex.
 
-    Uses gpt-4o-mini to assign one of the 13 categories or "none". Description
+    Uses gpt-4o-mini to assign one of the categories in CATEGORIES or "none". Description
     is allowed here (unlike the regex path) because the LLM can reason past
     incidental keyword overlap that broke description-fallback in the regex.
 

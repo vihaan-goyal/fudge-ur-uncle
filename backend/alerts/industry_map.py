@@ -65,6 +65,15 @@ INDUSTRY_CATEGORY_MAP = {
         "primary": ["lawyers_law_firms"],
         "secondary": ["labor_unions", "public_sector_unions"],
     },
+    "foreign_policy": {
+        "primary": ["defense_aerospace", "defense_electronics", "private_military", "oil_gas"],
+        "secondary": [
+            "agribusiness", "crop_production", "steel", "automotive",
+            "securities_investment", "commercial_banks",
+            "airlines", "sea_transport", "telecom_services",
+            "pharmaceuticals", "media",
+        ],
+    },
 }
 
 

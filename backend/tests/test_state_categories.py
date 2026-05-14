@@ -14,7 +14,7 @@ Two things this file locks in:
 
 Categories here intentionally line up with `industry_map.py`. New patterns
 should generally not need new categories — if a bill genuinely doesn't fit
-the existing 13, leaving it uncategorized is the right call.
+the existing 14, leaving it uncategorized is the right call.
 """
 import sys
 from pathlib import Path
@@ -96,6 +96,24 @@ from backend.alerts.state_categories import categorize
 
     # --- Elections expansion
     ("An Act Concerning Faithful Presidential Electors.", "elections"),
+
+    # --- foreign_policy (new 14th category — recovers the federal residue
+    # CLAUDE.md describes as "sanctions/treaty/country-name bills with no
+    # domestic-policy hook"). Asserted titles must NOT match any earlier
+    # category, otherwise foreign_policy is silently shadowed.
+    ("China Strategic Competition Act of 2025.", "foreign_policy"),
+    ("North Korea Sanctions and Policy Enhancement Act.", "foreign_policy"),
+    ("Iran Threat Reduction Act of 2025.", "foreign_policy"),
+    ("Foreign Agent Registration Act Amendments.", "foreign_policy"),
+    ("USAID Reform Act of 2025.", "foreign_policy"),
+    ("Russia Sanctions Review Act.", "foreign_policy"),
+    ("Israel Security Assistance Support Act.", "foreign_policy"),
+    ("Taiwan Allies Fund Act.", "foreign_policy"),
+    ("Hamas International Financing Prevention Act.", "foreign_policy"),
+    ("Global Magnitsky Human Rights Accountability Reauthorization.", "foreign_policy"),
+    ("Department of State Authorities Act, Fiscal Year 2025.", "foreign_policy"),
+    ("Arms Export Control Reauthorization.", "foreign_policy"),
+    ("Houthi Designation Restoration Act.", "foreign_policy"),
 ])
 def test_categorize_positive(title, expected):
     assert categorize(title) == expected, (
@@ -143,6 +161,19 @@ def test_categorize_stays_none(title):
     # `\bdental\b` matches "dental" but `\bdentist` covers dentistry too.
     ("An Act Concerning Dental Coverage.", "healthcare"),
     ("An Act Concerning Dentistry.", "healthcare"),
+
+    # foreign_policy is intentionally LAST in CATEGORY_KEYWORDS so it acts as
+    # a residue fallback. These pairs prove an earlier category's keyword
+    # still wins when it co-occurs with a country/sanctions token, so adding
+    # the new category didn't reshuffle existing routing.
+    ("China Trade Relations Act.", "economy"),       # economy's "trade relations" wins
+    ("Chinese Currency Accountability Act.", "economy"),  # economy's "currency" wins
+    ("NATO Edge Act.", "defense"),                    # defense's "nato" wins
+    ("No Dollars to Uyghur Forced Labor Act.", "labor"),  # labor's "forced labor" wins
+    # ...but with no earlier-category keyword, foreign_policy claims the bill.
+    ("Strategic Competition with China Act.", "foreign_policy"),
+    ("Russia Election Interference Sanctions Act.", "elections"),  # "election" wins
+    ("Russia Hybrid Threats Sanctions Act.", "foreign_policy"),  # no earlier hit -> foreign_policy
 ])
 def test_categorize_boundary_cases(title, expected):
     assert categorize(title) == expected, (
@@ -263,7 +294,7 @@ def test_ai_categorize_garbage_reply_treated_as_none(stub_ai_cache):
     import config
     from backend.alerts import state_categories
 
-    stub_client = _make_openai_stub("transportation")  # not in the 13-cat list
+    stub_client = _make_openai_stub("transportation")  # not in the CATEGORIES list
     with patch.object(config, "OPENAI_API_KEY", "sk-test"), \
          patch("openai.AsyncOpenAI", stub_client):
         result = asyncio.run(state_categories.ai_categorize("An Act Concerning Mopeds"))
