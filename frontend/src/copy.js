@@ -93,6 +93,61 @@ export const COPY = {
     issuesSaveError: "Couldn't save",
     issuesCounter: (n, max) => `${n}/${max} selected`,
   },
+  profile: {
+    promiseScoreLabel: "Promise",
+    yeaVotesLabel: "Yea votes",
+    raisedLabel: "Raised",
+    tiles: {
+      funding: { label: "Funding breakdown", fallbackSub: "View details", topPrefix: "Top: " },
+      voting: { label: "Voting record", sub: (n) => `${n} recent votes` },
+      stances: { label: "Voting positions", sub: "AI stance analysis" },
+      timeline: { label: "Activity timeline", sub: "Recent events" },
+      contact: { label: "Contact / take action", fallbackSub: "Reach out" },
+    },
+  },
+  takeAction: {
+    title: "Take action",
+    subtitle: "Every contact is logged by their office.",
+    callLabel: "Call their office",
+    callFallback: "No phone available",
+    contactFormLabel: "Contact form",
+    contactFormSub: "Official contact page",
+    websiteLabel: "Visit their website",
+    websiteFallback: "No website available",
+    scriptTitle: "Call script template",
+    scriptBody: (name) =>
+      `"Hi, I'm a constituent from [zip]. I'm calling about [bill]. I urge ${name} to vote [YES/NO] because [reason]. Thank you."`,
+  },
+  contact: {
+    title: "Contact your reps",
+    callBtn: "Call",
+    websiteBtn: "Website",
+    callAria: (name) => `Call ${name}`,
+    websiteAria: (name) => `Visit ${name}'s website`,
+  },
+  learnToVote: {
+    title: "Voting guide",
+    resourcesTitle: "Resources",
+    yourStateTitle: (state) => `Your state: ${state || "—"}`,
+    genericNote:
+      "Pick your state in Settings to see local deadlines and ID rules. The resources above work nationwide.",
+    sourceNote:
+      "Rules change — always confirm on your state's official site before you head to the polls.",
+    rows: {
+      register: "Register to vote",
+      polling: "Find your polling place",
+      deadline: "Registration deadline",
+      id: "ID requirements",
+      hours: "Polling hours",
+      official: "Official state voting site",
+    },
+    resources: [
+      { label: "Register to vote", url: "https://vote.gov" },
+      { label: "Find your polling place", url: "https://www.vote.org/polling-place-locator/" },
+      { label: "Absentee / mail-in ballot", url: "https://www.vote.org/absentee-ballot/" },
+      { label: "Check voter registration", url: "https://www.vote.org/am-i-registered-to-vote/" },
+    ],
+  },
   // Plain-language category labels (used by the "coming up" feed). Sentence-
   // case so they read well as standalone chips. Falls back to a humanized
   // version of the raw key when missing.
@@ -128,4 +183,57 @@ export const friendlyCategoryInline = (raw) => {
   if (!raw) return "";
   const label = COPY.categories[raw] || raw.replace(/_/g, " ");
   return label.toLowerCase();
+};
+
+// State-specific voting facts for the Learn-to-Vote screen. Covers the 5
+// jurisdictions the backend tracks today (CT, NY, NJ, CA, MA). Rules change
+// frequently — always link to the state's official site as the source of
+// truth, and surface the disclaimer (`learnToVote.sourceNote`) below the
+// card. Adding a new state: append an entry and the screen picks it up.
+export const STATE_VOTING_GUIDE = {
+  CT: {
+    name: "Connecticut",
+    registerUrl: "https://voterregistration.ct.gov",
+    pollingPlaceUrl: "https://portaldir.ct.gov/sots/LookUp.aspx",
+    officialUrl: "https://portal.ct.gov/sots/elections",
+    registrationDeadline: "7 days before Election Day, or in person on Election Day with proof of residence",
+    idRequired: "ID requested but not required — you can sign an affidavit if you don't have one",
+    pollingHours: "6 AM – 8 PM",
+  },
+  NY: {
+    name: "New York",
+    registerUrl: "https://elections.ny.gov/register-vote",
+    pollingPlaceUrl: "https://voterlookup.elections.ny.gov",
+    officialUrl: "https://elections.ny.gov",
+    registrationDeadline: "Postmarked at least 10 days before Election Day",
+    idRequired: "No ID required at the polls unless you're a first-time voter who registered by mail without ID",
+    pollingHours: "6 AM – 9 PM",
+  },
+  NJ: {
+    name: "New Jersey",
+    registerUrl: "https://nj.gov/state/elections/voter-registration.shtml",
+    pollingPlaceUrl: "https://voter.svrs.nj.gov/polling-place-search",
+    officialUrl: "https://nj.gov/state/elections",
+    registrationDeadline: "21 days before Election Day",
+    idRequired: "First-time voters need ID or proof of residence — returning voters don't",
+    pollingHours: "6 AM – 8 PM",
+  },
+  CA: {
+    name: "California",
+    registerUrl: "https://registertovote.ca.gov",
+    pollingPlaceUrl: "https://www.sos.ca.gov/elections/polling-place",
+    officialUrl: "https://www.sos.ca.gov/elections",
+    registrationDeadline: "15 days before Election Day, or same-day conditional voting at any polling location",
+    idRequired: "Generally none — first-time voters who registered by mail without ID will be asked for one",
+    pollingHours: "7 AM – 8 PM",
+  },
+  MA: {
+    name: "Massachusetts",
+    registerUrl: "https://www.sec.state.ma.us/divisions/elections/voter-resources/online-voter-registration.htm",
+    pollingPlaceUrl: "https://www.sec.state.ma.us/wheredoivotema/bal/myelectioninfo.aspx",
+    officialUrl: "https://www.sec.state.ma.us/divisions/elections",
+    registrationDeadline: "10 days before Election Day",
+    idRequired: "Usually not asked, but bring one — inactive voters and some mail-in registrants may be checked",
+    pollingHours: "7 AM – 8 PM (some towns open earlier)",
+  },
 };

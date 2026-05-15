@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api, auth, SAMPLE } from "./api.js";
 import { groupAlerts } from "./groupAlerts.js";
-import { COPY, friendlyCategory, friendlyCategoryInline } from "./copy.js";
+import { COPY, friendlyCategory, friendlyCategoryInline, STATE_VOTING_GUIDE } from "./copy.js";
 
 // ============================================================
 // CONSTANTS
@@ -1378,30 +1378,30 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.textMuted }}>
               {data.promise_score ?? "—"}
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Promise</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.promiseScoreLabel}</div>
           </div>
           <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.green }}>
               {v.yea_count}<span style={{ color: colors.textMuted, fontSize: 14 }}>/{v.total_tracked}</span>
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Yea votes</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.yeaVotesLabel}</div>
           </div>
           <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.accent }}>
               {fmt(f.total_raised)}
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Raised</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.raisedLabel}</div>
           </div>
         </div>
 
         {/* Navigation Tiles */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {[
-            { icon: "dollar", label: "Funding Breakdown", sub: f.top_industries?.length ? `Top: ${f.top_industries[0].industry}` : "View details", screen: SCREENS.FUNDING },
-            { icon: "vote", label: "Voting Record", sub: `${v.total_tracked} recent votes`, screen: SCREENS.VOTING_HISTORY },
-            { icon: "star", label: "Voting Positions", sub: "AI stance analysis", screen: SCREENS.PROMISE_SCORING },
-            { icon: "clock", label: "Activity Timeline", sub: "Recent events", screen: SCREENS.TIMELINE },
-            { icon: "phone", label: "Contact / Take Action", sub: p.phone || "Reach out", screen: SCREENS.TAKE_ACTION },
+            { icon: "dollar", label: COPY.profile.tiles.funding.label, sub: f.top_industries?.length ? `${COPY.profile.tiles.funding.topPrefix}${f.top_industries[0].industry}` : COPY.profile.tiles.funding.fallbackSub, screen: SCREENS.FUNDING },
+            { icon: "vote", label: COPY.profile.tiles.voting.label, sub: COPY.profile.tiles.voting.sub(v.total_tracked), screen: SCREENS.VOTING_HISTORY },
+            { icon: "star", label: COPY.profile.tiles.stances.label, sub: COPY.profile.tiles.stances.sub, screen: SCREENS.PROMISE_SCORING },
+            { icon: "clock", label: COPY.profile.tiles.timeline.label, sub: COPY.profile.tiles.timeline.sub, screen: SCREENS.TIMELINE },
+            { icon: "phone", label: COPY.profile.tiles.contact.label, sub: p.phone || COPY.profile.tiles.contact.fallbackSub, screen: SCREENS.TAKE_ACTION },
           ].map((item) => (
             <div key={item.label} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, marginBottom: 0 }} onClick={() => onNav(item.screen)}>
               <div style={{ width: 36, height: 36, borderRadius: 8, background: colors.accentDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1760,13 +1760,13 @@ const TakeActionScreen = ({ onNav, profileData }) => {
       <StatusBar />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Take Action</h2>
-        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, marginBottom: 14, fontFamily: font }}>Every contact is logged by their office.</p>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.takeAction.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, marginBottom: 14, fontFamily: font }}>{COPY.takeAction.subtitle}</p>
 
         {[
-          { icon: "phone", label: "Call Their Office", sub: contact.phone || "No phone available", color: colors.green, action: contact.phone ? `tel:${contact.phone}` : null },
-          { icon: "mail", label: "Contact Form", sub: "Official contact page", color: colors.blue, action: contact.contact_form || contact.website },
-          { icon: "megaphone", label: "Visit Their Website", sub: contact.website || "No website available", color: colors.purple, action: contact.website },
+          { icon: "phone", label: COPY.takeAction.callLabel, sub: contact.phone || COPY.takeAction.callFallback, color: colors.green, action: contact.phone ? `tel:${contact.phone}` : null },
+          { icon: "mail", label: COPY.takeAction.contactFormLabel, sub: COPY.takeAction.contactFormSub, color: colors.blue, action: contact.contact_form || contact.website },
+          { icon: "megaphone", label: COPY.takeAction.websiteLabel, sub: contact.website || COPY.takeAction.websiteFallback, color: colors.purple, action: contact.website },
         ].map((m, i) => {
           const cardInner = (
             <div style={{ ...s.card, cursor: m.action ? "pointer" : "not-allowed", display: "flex", alignItems: "center", gap: 12, opacity: m.action ? 1 : 0.5 }}>
@@ -1796,10 +1796,10 @@ const TakeActionScreen = ({ onNav, profileData }) => {
         <div style={s.divider} />
 
         <div style={s.section}>
-          <div style={s.sectionTitle}>Call Script Template</div>
+          <div style={s.sectionTitle}>{COPY.takeAction.scriptTitle}</div>
           <div style={{ ...s.card, background: colors.accentDim, borderColor: colors.accent + "33" }}>
             <div style={{ fontSize: 12, lineHeight: 1.6, fontFamily: font }}>
-              "Hi, I'm a constituent from [zip]. I'm calling about [bill]. I urge {p.name} to vote [YES/NO] because [reason]. Thank you."
+              {COPY.takeAction.scriptBody(p.name)}
             </div>
           </div>
         </div>
@@ -1823,7 +1823,7 @@ const ContactRepScreen = ({ onNav, userState }) => {
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} label="Dashboard" />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>Contact Your Reps</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>{COPY.contact.title}</h2>
         {loading && <Loading />}
         {reps.map((p) => (
           <div key={p.bioguide_id} style={{ ...s.card }}>
@@ -1838,22 +1838,22 @@ const ContactRepScreen = ({ onNav, userState }) => {
               {p.phone && (
                 <a href={`tel:${p.phone}`} style={{ textDecoration: "none" }}>
                   <button
-                    aria-label={`Call ${p.name}`}
+                    aria-label={COPY.contact.callAria(p.name)}
                     title={`Call ${p.phone}`}
                     style={{ ...s.btn("outline"), padding: "6px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" }}
                   >
-                    <Icon type="phone" size={12} /> Call
+                    <Icon type="phone" size={12} /> {COPY.contact.callBtn}
                   </button>
                 </a>
               )}
               {p.website && (
                 <a href={p.website} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                   <button
-                    aria-label={`Visit ${p.name}'s website`}
+                    aria-label={COPY.contact.websiteAria(p.name)}
                     title={p.website}
                     style={{ ...s.btn("outline"), padding: "6px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" }}
                   >
-                    <Icon type="mail" size={12} /> Website
+                    <Icon type="mail" size={12} /> {COPY.contact.websiteBtn}
                   </button>
                 </a>
               )}
@@ -2077,44 +2077,92 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
 };
 
 // 15. LEARN TO VOTE
-const LearnToVoteScreen = ({ onNav, userState }) => (
-  <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
-    <StatusBar />
-    <div style={{ ...s.body, paddingBottom: 70 }}>
-      <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} label="Dashboard" />
-      <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>Voting Guide</h2>
+const LearnToVoteScreen = ({ onNav, userState }) => {
+  const stateKey = (userState || "").toUpperCase();
+  const guide = STATE_VOTING_GUIDE[stateKey];
+  const stateLabel = guide?.name || stateKey || "—";
+  const rows = COPY.learnToVote.rows;
 
-      <div style={s.section}>
-        <div style={s.sectionTitle}>Resources</div>
-        {[
-          { label: "Register to vote", url: "https://vote.gov" },
-          { label: "Find your polling place", url: "https://www.vote.org/polling-place-locator/" },
-          { label: "Absentee / mail-in ballot", url: "https://www.vote.org/absentee-ballot/" },
-          { label: "Check voter registration", url: "https://www.vote.org/am-i-registered-to-vote/" },
-        ].map((r, i) => (
-          <a key={i} href={r.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
-            <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 13 }}>{r.label}</span>
-              <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
-                <Icon type="back" size={14} />
-              </span>
+  const stateFacts = guide && [
+    { label: rows.deadline, value: guide.registrationDeadline },
+    { label: rows.id, value: guide.idRequired },
+    { label: rows.hours, value: guide.pollingHours },
+  ];
+
+  const stateLinks = guide && [
+    { label: rows.register, url: guide.registerUrl },
+    { label: rows.polling, url: guide.pollingPlaceUrl },
+    { label: rows.official, url: guide.officialUrl },
+  ];
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar />
+      <div style={{ ...s.body, paddingBottom: 70 }}>
+        <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} label="Dashboard" />
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>{COPY.learnToVote.title}</h2>
+
+        <div style={s.section}>
+          <div style={s.sectionTitle}>{COPY.learnToVote.yourStateTitle(stateLabel)}</div>
+          {guide ? (
+            <>
+              <div style={{ ...s.card, marginBottom: 8 }}>
+                {stateFacts.map((row, i) => (
+                  <div
+                    key={row.label}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                      paddingTop: i === 0 ? 0 : 10,
+                      paddingBottom: i === stateFacts.length - 1 ? 0 : 10,
+                      borderBottom: i < stateFacts.length - 1 ? `1px solid ${colors.border}` : "none",
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600 }}>{row.label}</span>
+                    <span style={{ fontSize: 13, lineHeight: 1.4 }}>{row.value}</span>
+                  </div>
+                ))}
+              </div>
+              {stateLinks.map((r) => (
+                <a key={r.url} href={r.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
+                  <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 13 }}>{r.label}</span>
+                    <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
+                      <Icon type="back" size={14} />
+                    </span>
+                  </div>
+                </a>
+              ))}
+              <p style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8 }}>
+                {COPY.learnToVote.sourceNote}
+              </p>
+            </>
+          ) : (
+            <div style={s.card}>
+              <div style={{ fontSize: 12, lineHeight: 1.5 }}>{COPY.learnToVote.genericNote}</div>
             </div>
-          </a>
-        ))}
-      </div>
+          )}
+        </div>
 
-      <div style={s.section}>
-        <div style={s.sectionTitle}>Your State: {userState || "CT"}</div>
-        <div style={s.card}>
-          <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-            Detailed state-specific voting info (deadlines, ID requirements, polling hours) coming soon. For now, use the resources above.
-          </div>
+        <div style={s.section}>
+          <div style={s.sectionTitle}>{COPY.learnToVote.resourcesTitle}</div>
+          {COPY.learnToVote.resources.map((r) => (
+            <a key={r.url} href={r.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
+              <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 13 }}>{r.label}</span>
+                <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
+                  <Icon type="back" size={14} />
+                </span>
+              </div>
+            </a>
+          ))}
         </div>
       </div>
+      <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
     </div>
-    <NavBar active={SCREENS.DASHBOARD} onNav={onNav} />
-  </div>
-);
+  );
+};
 
 // 16. ALERTS - Wired to backend
 const AlertsScreen = ({ onNav, onSelectPolitician }) => {
