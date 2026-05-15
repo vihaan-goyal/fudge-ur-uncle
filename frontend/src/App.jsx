@@ -47,6 +47,47 @@ const isPWA = () =>
     window.navigator.standalone === true);
 const _IS_PWA_AT_BOOT = isPWA();
 
+// Module-level CSS injection for keyframes used by motion-light surfaces
+// (Coming-up skeleton shimmer, row entry fade, soonest-vote dot pulse).
+// Idempotent — guarded against HMR / repeated imports.
+if (typeof document !== "undefined" && !document.getElementById("fuu-anim-styles")) {
+  const _animEl = document.createElement("style");
+  _animEl.id = "fuu-anim-styles";
+  _animEl.textContent = `
+    @keyframes fuu-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    @keyframes fuu-fade-up {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+    @keyframes fuu-soft-pulse {
+      0%, 100% { opacity: 0.5; transform: scale(1); }
+      50%      { opacity: 1;   transform: scale(1.4); }
+    }
+    /* Global press feedback — fires on :active for any native button or
+       role=button element that doesn't already drive its own JS-tracked
+       transform. Elements that DO (ComingUpCard, RepCardShell,
+       QuickActionButton) set transform inline, which wins over this rule. */
+    button:active, [role="button"]:active {
+      transform: translateY(1px);
+    }
+    button, [role="button"] {
+      transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+  `;
+  document.head.appendChild(_animEl);
+}
+
 const colors = {
   // Light, airy base — like a crisp morning
   bg: "#fdfbf7",           // warm off-white (softer than pure white)
@@ -116,14 +157,18 @@ const s = {
     flexShrink: 0,
   },
   headerTitle: {
-    fontSize: 20, fontWeight: 700, fontFamily: font,
-    color: colors.text, margin: 0,
+    fontSize: 20, fontWeight: 700, fontFamily: fontSans,
+    color: colors.text, margin: 0, letterSpacing: -0.2,
   },
   headerSub: {
-    fontSize: 11, color: colors.textMuted, marginTop: 2,
+    fontSize: 12, color: colors.textMuted, marginTop: 3,
+    fontFamily: fontSans,
   },
   body: {
     padding: "12px 20px", overflowY: "auto", flex: 1,
+    // Flow-in on every screen mount — fades + 8px settle so navigating
+    // between screens feels physical instead of a hard cut.
+    animation: "fuu-fade-up 0.42s cubic-bezier(0.16, 1, 0.3, 1) both",
   },
   navBar: {
     height: 56, display: "flex", borderTop: `1px solid ${colors.border}`,
@@ -133,14 +178,14 @@ const s = {
   navItem: (active) => ({
     flex: 1, display: "flex", flexDirection: "column",
     alignItems: "center", justifyContent: "center", gap: 3,
-    fontSize: 9, fontFamily: font, cursor: "pointer",
+    fontSize: 10, fontFamily: fontSans, fontWeight: 500, cursor: "pointer",
     color: active ? colors.accent : colors.textMuted,
     background: "none", border: "none", padding: 0,
     transition: "color 0.15s",
   }),
   btn: (variant = "primary") => ({
     width: "100%", padding: "12px 16px", border: "none",
-    borderRadius: 8, fontFamily: font, fontSize: 13,
+    borderRadius: 10, fontFamily: fontSans, fontSize: 13,
     fontWeight: 600, cursor: "pointer", textAlign: "center",
     transition: "all 0.15s",
     ...(variant === "primary" ? {
@@ -155,32 +200,32 @@ const s = {
   }),
   input: {
     width: "100%", padding: "10px 12px", background: colors.surfaceLight,
-    border: `1px solid ${colors.border}`, borderRadius: 8,
-    color: colors.text, fontFamily: font, fontSize: 13,
+    border: `1px solid ${colors.border}`, borderRadius: 10,
+    color: colors.text, fontFamily: fontSans, fontSize: 13,
     outline: "none", boxSizing: "border-box",
   },
   chip: (selected) => ({
     padding: "8px 14px", borderRadius: 20, fontSize: 12,
-    fontFamily: font, cursor: "pointer",
-    transition: "all 0.15s", fontWeight: selected ? 600 : 400,
+    fontFamily: fontSans, cursor: "pointer",
+    transition: "all 0.15s", fontWeight: selected ? 600 : 500,
     background: selected ? colors.accentDim : colors.surfaceLight,
     color: selected ? colors.accent : colors.textMuted,
     border: `1px solid ${selected ? colors.accent : colors.border}`,
   }),
   card: {
-    background: colors.surfaceLight, borderRadius: 10,
+    background: colors.surfaceLight, borderRadius: 14,
     border: `1px solid ${colors.border}`, padding: "14px",
     marginBottom: 10,
   },
   badge: (color) => ({
-    display: "inline-block", padding: "2px 8px", borderRadius: 4,
-    fontSize: 10, fontFamily: font, fontWeight: 600,
+    display: "inline-block", padding: "2px 8px", borderRadius: 6,
+    fontSize: 11, fontFamily: fontSans, fontWeight: 600,
     background: color === "green" ? colors.greenDim : color === "red" ? colors.redDim : color === "yellow" ? colors.yellowDim : colors.blueDim,
     color: color === "green" ? colors.green : color === "red" ? colors.red : color === "yellow" ? colors.yellow : colors.blue,
   }),
   backBtn: {
     background: "none", border: "none", color: colors.accent,
-    fontFamily: font, fontSize: 12, cursor: "pointer",
+    fontFamily: fontSans, fontSize: 13, fontWeight: 500, cursor: "pointer",
     padding: "4px 0", marginBottom: 8, display: "flex",
     alignItems: "center", gap: 4,
   },
@@ -191,10 +236,13 @@ const s = {
     fontSize: 14, fontWeight: 600, fontFamily: fontSans,
     color: colors.text, marginBottom: 10,
   },
+  // App-wide section title — was mono uppercase letter-spaced ("terminal"
+  // look) but the whole-app warm pass dropped that for sentence-case sans.
+  // copy.js labels were sentence-cased in the same pass so existing
+  // ALL-CAPS strings now render as natural-case headings.
   sectionTitle: {
-    fontSize: 11, fontWeight: 700, fontFamily: font,
-    color: colors.textMuted, textTransform: "uppercase",
-    letterSpacing: 1.2, marginBottom: 8,
+    fontSize: 13, fontWeight: 600, fontFamily: fontSans,
+    color: colors.text, marginBottom: 10,
   },
   divider: { height: 1, background: colors.border, margin: "12px 0" },
 };
@@ -303,6 +351,21 @@ const Loading = ({ label = "Loading..." }) => (
     <div style={{ width: 24, height: 24, border: `2px solid ${colors.border}`, borderTopColor: colors.accent, borderRadius: "50%", margin: "0 auto 12px", animation: "spin 0.8s linear infinite" }} />
     <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{label}</div>
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+);
+
+// Flow-in wrapper. Fires the `fuu-fade-up` animation on mount — drop into
+// any branch that renders only after async data arrives so the content
+// settles in instead of popping. For lists, pass `delay = i * 60` to
+// stagger. `style` is merged onto the wrapper so callers can preserve
+// surrounding layout (gridColumn, marginBottom, etc.).
+const FadeIn = ({ children, delay = 0, duration = 420, style }) => (
+  <div style={{
+    animation: `fuu-fade-up ${duration}ms cubic-bezier(0.16, 1, 0.3, 1) both`,
+    animationDelay: `${delay}ms`,
+    ...style,
+  }}>
+    {children}
   </div>
 );
 
@@ -652,6 +715,55 @@ const Shimmer = ({ width = 40, height = 16, borderRadius = 4, style }) => (
 );
 
 // Self-fetching rep card - loads its own funding on mount
+// Warm-treatment quick-action button used on the dashboard. Each instance
+// owns its own pressed state so the tactile transform only fires on the
+// tapped tile, not the whole grid. `span` makes a single tile occupy both
+// columns — used for the trailing odd action so the grid doesn't dangle.
+const QuickActionButton = ({ icon, label, onClick, span }) => {
+  const [pressed, setPressed] = useState(false);
+  const press = {
+    onPointerDown: () => setPressed(true),
+    onPointerUp: () => setPressed(false),
+    onPointerLeave: () => setPressed(false),
+    onPointerCancel: () => setPressed(false),
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      {...press}
+      style={{
+        gridColumn: span ? "1 / -1" : "auto",
+        cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "12px 14px",
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 14,
+        color: colors.text,
+        fontFamily: fontSans,
+        fontSize: 13, fontWeight: 500,
+        textAlign: "left",
+        boxShadow: pressed
+          ? "0 1px 0 rgba(231,122,27,0.05)"
+          : "0 6px 16px -12px rgba(231,122,27,0.18), 0 1px 0 rgba(231,122,27,0.04)",
+        transform: pressed ? "translateY(1px)" : "translateY(0)",
+        transition: "transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      <span aria-hidden="true" style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 30, height: 30, borderRadius: 999,
+        background: colors.accentDim,
+        flexShrink: 0,
+      }}>
+        <Icon type={icon} size={16} color={colors.accent} />
+      </span>
+      <span>{label}</span>
+    </button>
+  );
+};
+
 const RepCard = ({ rep, onClick }) => {
   const [funding, setFunding] = useState(null);
   const [status, setStatus] = useState("loading");
@@ -688,33 +800,250 @@ const RepCard = ({ rep, onClick }) => {
   };
 
   return (
-    <div style={{ ...s.card, cursor: "pointer" }} onClick={onClick}>
+    <RepCardShell onClick={onClick}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <Avatar name={rep.name} party={rep.party} />
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{rep.name}</span>
+            <span style={{ fontWeight: 600, fontSize: 14, fontFamily: fontSans, color: colors.text }}>{rep.name}</span>
             <PartyBadge party={rep.party} />
           </div>
-          <div style={{ fontSize: 11, color: colors.textMuted }}>
+          <div style={{ fontSize: 12, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>
             {rep.chamber} · {rep.district}
           </div>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+      <div style={{ display: "flex", gap: 18, marginTop: 12 }}>
         <div>
-          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Raised</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Raised</div>
           {renderValue(funding?.total_raised, colors.accent)}
         </div>
         <div>
-          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>PAC $</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>PAC $</div>
           {renderValue(funding?.pac_total)}
         </div>
         <div>
-          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Small $</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Small $</div>
           {renderValue(funding?.small_donor_total)}
         </div>
       </div>
+    </RepCardShell>
+  );
+};
+
+// Outer button for RepCard — split out so the press-state lives on the
+// container (the inner RepCard body uses an effect hook for funding fetch,
+// and we don't want a second state to muddy that). White surface with a
+// warm-tinted diffusion shadow matches ComingUpCard / QuickActionButton.
+const RepCardShell = ({ onClick, children }) => {
+  const [pressed, setPressed] = useState(false);
+  const press = {
+    onPointerDown: () => setPressed(true),
+    onPointerUp: () => setPressed(false),
+    onPointerLeave: () => setPressed(false),
+    onPointerCancel: () => setPressed(false),
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      {...press}
+      style={{
+        width: "100%", textAlign: "left", cursor: "pointer",
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 16,
+        padding: "14px 16px",
+        marginBottom: 10,
+        color: colors.text, fontFamily: fontSans,
+        boxShadow: pressed
+          ? "0 1px 0 rgba(231,122,27,0.05)"
+          : "0 6px 18px -10px rgba(231,122,27,0.13), 0 1px 0 rgba(231,122,27,0.05)",
+        transform: pressed ? "translateY(1px)" : "translateY(0)",
+        transition: "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      {children}
+    </button>
+  );
+};
+
+// "Coming up" — the dashboard's read-path on /api/upcoming-votes. The whole
+// strip is one tap target into the alerts feed. Hierarchy comes from a
+// leading accent rail on the soonest row (when imminent), 1px hairline
+// dividers instead of per-row card pillows, and a sans/mono pairing —
+// category in sans, bill number + relative time in mono. The card sits on
+// the warm bg with a low-contrast, accent-tinted diffusion shadow rather
+// than the generic surface-light pillow that the rest of the dashboard
+// uses (per skill rule: cards only when elevation communicates hierarchy).
+const SkeletonBar = ({ width = "60%", height = 9, style }) => (
+  <span style={{
+    display: "inline-block", width, height,
+    borderRadius: 3,
+    background: `linear-gradient(90deg, ${colors.surfaceLight} 0%, ${colors.border} 50%, ${colors.surfaceLight} 100%)`,
+    backgroundSize: "200% 100%",
+    animation: "fuu-shimmer 1.6s ease-in-out infinite",
+    ...style,
+  }} />
+);
+
+const ComingUpRow = ({ row, index, isFirst }) => {
+  const days = row.days_until;
+  const imminent = typeof days === "number" && days <= 3;
+  const label = friendlyCategory(row.category);
+  const subParts = [];
+  if (typeof days === "number") subParts.push(COPY.dashboard.comingUpRelative(days));
+  if (row.chamber) subParts.push(`${row.chamber} floor`);
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        padding: "13px 16px",
+        borderTop: isFirst ? "none" : `1px solid ${colors.border}`,
+        background: imminent && isFirst ? colors.accentDim : "transparent",
+        opacity: 0,
+        animation: "fuu-fade-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
+        animationDelay: `${60 + index * 70}ms`,
+      }}
+    >
+      <div style={{
+        display: "flex", alignItems: "baseline",
+        justifyContent: "space-between", gap: 12,
+      }}>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          fontSize: 14, fontWeight: 600, fontFamily: fontSans,
+          color: colors.text, minWidth: 0,
+        }}>
+          {imminent && (
+            <span
+              aria-hidden="true"
+              style={{
+                display: "inline-block", width: 7, height: 7, borderRadius: 999,
+                background: colors.accent, flexShrink: 0,
+                animation: "fuu-soft-pulse 2.4s ease-in-out infinite",
+              }}
+            />
+          )}
+          <span style={{
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>{label}</span>
+        </span>
+        {row.bill_number && (
+          <span style={{
+            fontSize: 11, color: colors.textMuted, fontFamily: font,
+            fontWeight: 500, flexShrink: 0,
+          }}>
+            {row.bill_number}
+          </span>
+        )}
+      </div>
+      {subParts.length > 0 && (
+        <div style={{
+          fontSize: 12, color: colors.textMuted, fontFamily: fontSans,
+          marginTop: 3,
+        }}>
+          {subParts.join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ComingUpSkeleton = () => (
+  <>
+    {[0, 1, 2].map((i) => (
+      <div key={i} style={{
+        padding: "11px 14px",
+        borderTop: i === 0 ? "none" : `1px solid ${colors.border}`,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <SkeletonBar width="55%" />
+          <SkeletonBar width="22%" />
+        </div>
+        <SkeletonBar width="40%" style={{ marginTop: 7 }} />
+      </div>
+    ))}
+  </>
+);
+
+const ComingUpEmpty = () => (
+  <div style={{
+    padding: "22px 16px",
+    display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6,
+  }}>
+    <Icon type="clock" size={20} color={colors.accent} />
+    <div style={{
+      fontSize: 14, fontWeight: 600, fontFamily: fontSans,
+      color: colors.text, marginTop: 4,
+    }}>
+      {COPY.dashboard.comingUpEmpty}
+    </div>
+    <div style={{
+      fontSize: 12, color: colors.textMuted, fontFamily: fontSans,
+    }}>
+      Tap to explore recent activity.
+    </div>
+  </div>
+);
+
+const ComingUpCard = ({ upcoming, loading, onOpen }) => {
+  const [pressed, setPressed] = useState(false);
+  const press = {
+    onPointerDown: () => setPressed(true),
+    onPointerUp: () => setPressed(false),
+    onPointerLeave: () => setPressed(false),
+    onPointerCancel: () => setPressed(false),
+  };
+
+  return (
+    <div style={s.section}>
+      <div style={{ ...s.sectionTitleFriendly, marginBottom: 4 }}>
+        {COPY.dashboard.comingUpTitle}
+      </div>
+      {/* Caption sits outside the card (labels-outside rule) and uses sans
+          rather than mono-uppercase so it reads as conversation, not a
+          terminal label. */}
+      <div style={{
+        fontSize: 12, color: colors.textMuted, fontFamily: fontSans,
+        marginBottom: 10,
+      }}>
+        {COPY.dashboard.comingUpSubtitle}
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpen}
+        {...press}
+        style={{
+          width: "100%", textAlign: "left", cursor: "pointer",
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          padding: 0, margin: 0,
+          color: colors.text, fontFamily: fontSans,
+          overflow: "hidden",
+          // Accent-tinted, low-contrast diffusion shadow — lifts the strip
+          // off the cream bg without the AI "neon glow" tell.
+          boxShadow: pressed
+            ? "0 1px 0 rgba(231,122,27,0.05)"
+            : "0 6px 18px -10px rgba(231,122,27,0.13), 0 1px 0 rgba(231,122,27,0.05)",
+          transform: pressed ? "translateY(1px)" : "translateY(0)",
+          transition:
+            "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+      >
+        {loading ? (
+          <ComingUpSkeleton />
+        ) : upcoming.length === 0 ? (
+          <ComingUpEmpty />
+        ) : (
+          upcoming.map((u, i) => (
+            <ComingUpRow key={u.id} row={u} index={i} isFirst={i === 0} />
+          ))
+        )}
+      </button>
     </div>
   );
 };
@@ -735,7 +1064,7 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
   const personalIssues = (userIssues || [])
     .filter((k) => k && COPY.categories[k]);
   const personalKey = personalIssues.join(",");
-  const { data: upcomingData, offline: upcomingOffline } = useApi(
+  const { data: upcomingData, loading: upcomingLoading, offline: upcomingOffline } = useApi(
     () => api.getUpcomingVotes({
       state: userState,
       categories: personalIssues.length ? personalIssues : undefined,
@@ -772,11 +1101,11 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
         {/* Greeting lives inside the scrollable body (not in a fixed
             header band) so it scrolls away with the content rather than
             sticking at the top. */}
-        <div style={{ marginBottom: 18 }}>
-          <h1 style={{ ...s.headerTitle, fontSize: 22, fontFamily: fontSans, textTransform: "none", letterSpacing: 0, margin: 0 }}>
+        <div style={{ marginBottom: 20 }}>
+          <h1 style={{ ...s.headerTitle, fontSize: 24, fontWeight: 700, fontFamily: fontSans, textTransform: "none", letterSpacing: -0.2, margin: 0, color: colors.text }}>
             {COPY.dashboard.greeting(currentUser?.name)}
           </h1>
-          <p style={{ ...s.headerSub, fontSize: 12, marginTop: 2, marginBottom: 0 }}>
+          <p style={{ fontSize: 13, color: colors.textMuted, fontFamily: fontSans, marginTop: 4, marginBottom: 0, lineHeight: 1.4 }}>
             {personalIssues.length > 0
               ? COPY.dashboard.greetingSubWithIssues(userState || "CT", personalIssues.map(friendlyCategory))
               : COPY.dashboard.greetingSub(userState || "CT")} {offline && "· offline"}
@@ -784,76 +1113,39 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
         </div>
 
         {/* Quick Actions first — action-first onboarding for new voters: the
-            verbs you can take are the most useful starting point. */}
+            verbs you can take are the most useful starting point. The
+            trailing odd action spans both columns so the grid lands on a
+            balanced silhouette instead of a dangling tile. */}
         <div style={s.section}>
           <div style={s.sectionTitleFriendly}>{COPY.dashboard.quickActionsTitle}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {[
-              { icon: "phone", label: COPY.dashboard.quickActions.contactRep, screen: SCREENS.CONTACT_REP },
-              { icon: "vote", label: COPY.dashboard.quickActions.votingGuide, screen: SCREENS.LEARN_TO_VOTE },
-              { icon: "calendar", label: COPY.dashboard.quickActions.events, screen: SCREENS.EVENTS },
-              { icon: "dollar", label: COPY.dashboard.quickActions.followMoney, screen: SCREENS.SEARCH },
-              { icon: "home", label: COPY.dashboard.quickActions.stateReps, screen: SCREENS.STATE_REPS },
-            ].map((a) => (
-              <button key={a.label} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, marginBottom: 0 }} onClick={() => onNav(a.screen)}>
-                <Icon type={a.icon} size={16} color={colors.accent} />
-                <span style={{ fontSize: 12, fontFamily: font }}>{a.label}</span>
-              </button>
-            ))}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {(() => {
+              const actions = [
+                { icon: "phone", label: COPY.dashboard.quickActions.contactRep, screen: SCREENS.CONTACT_REP },
+                { icon: "vote", label: COPY.dashboard.quickActions.votingGuide, screen: SCREENS.LEARN_TO_VOTE },
+                { icon: "calendar", label: COPY.dashboard.quickActions.events, screen: SCREENS.EVENTS },
+                { icon: "dollar", label: COPY.dashboard.quickActions.followMoney, screen: SCREENS.SEARCH },
+                { icon: "home", label: COPY.dashboard.quickActions.stateReps, screen: SCREENS.STATE_REPS },
+              ];
+              return actions.map((a, i) => (
+                <QuickActionButton
+                  key={a.label}
+                  icon={a.icon}
+                  label={a.label}
+                  onClick={() => onNav(a.screen)}
+                  span={i === actions.length - 1 && actions.length % 2 === 1}
+                />
+              ));
+            })()}
           </div>
         </div>
 
-        {/* Coming up — one card, tight rows. Section header carries the
-            framing so we don't repeat "Your reps will weigh in on" per row.
-            The whole card is one tap target into the alerts feed. */}
-        <div style={s.section}>
-          <div style={s.sectionTitleFriendly}>{COPY.dashboard.comingUpTitle}</div>
-          <button
-            style={{
-              ...s.card,
-              cursor: "pointer",
-              textAlign: "left",
-              width: "100%",
-              padding: "10px 14px",
-            }}
-            onClick={() => onNav(SCREENS.ALERTS)}
-          >
-            <div style={{ fontSize: 10, color: colors.textMuted, marginBottom: 6, letterSpacing: 0.3, fontFamily: font }}>
-              {COPY.dashboard.comingUpSubtitle}
-            </div>
-            {upcoming.length === 0 ? (
-              <div style={{ fontSize: 12, color: colors.textMuted, fontFamily: fontSans, padding: "6px 0" }}>
-                {COPY.dashboard.comingUpEmpty}
-              </div>
-            ) : (
-              upcoming.map((u, i) => (
-                <div
-                  key={u.id}
-                  style={{
-                    padding: "6px 0",
-                    borderTop: i === 0 ? "none" : `1px solid ${colors.border}`,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, fontFamily: fontSans, color: colors.text }}>
-                      {friendlyCategory(u.category)}
-                    </span>
-                    {u.bill_number && (
-                      <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
-                        {u.bill_number}
-                      </span>
-                    )}
-                  </div>
-                  {u.days_until !== null && u.days_until !== undefined && (
-                    <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 2 }}>
-                      {COPY.dashboard.comingUpRelative(u.days_until)}
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </button>
-        </div>
+        <ComingUpCard
+          upcoming={upcoming}
+          loading={upcomingLoading && upcoming.length === 0}
+          onOpen={() => onNav(SCREENS.ALERTS)}
+        />
+
 
         {loading && <Loading label="Fetching your representatives..." />}
         {error && <ErrorBanner error={error} onRetry={reload} />}
@@ -869,12 +1161,13 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
         {!loading && !error && reps.length > 0 && (
           <div style={s.section}>
             <div style={s.sectionTitleFriendly}>{COPY.dashboard.repsSectionTitle}</div>
-            {reps.map((rep) => (
-              <RepCard
-                key={rep.bioguide_id}
-                rep={rep}
-                onClick={() => onSelectPolitician(rep.bioguide_id)}
-              />
+            {reps.map((rep, i) => (
+              <FadeIn key={rep.bioguide_id} delay={Math.min(i * 60, 480)}>
+                <RepCard
+                  rep={rep}
+                  onClick={() => onSelectPolitician(rep.bioguide_id)}
+                />
+              </FadeIn>
             ))}
           </div>
         )}
@@ -955,19 +1248,21 @@ const SearchScreen = ({ onNav, onSelectPolitician, onSelectStateRep, userState }
         {results.length > 0 && (
           <>
             <div style={s.sectionTitle}>Results ({results.length})</div>
-            {results.map((p) => {
+            {results.map((p, i) => {
               const id = p.level === "state" ? `s-${p.people_id}` : `f-${p.bioguide_id}`;
               return (
-                <div key={id} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }} onClick={() => handleClick(p)}>
-                  <Avatar name={p.name} size={36} party={p.party} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>
-                      {p.name} <PartyBadge party={p.party} />{levelBadge(p.level)}
+                <FadeIn key={id} delay={Math.min(i * 40, 400)}>
+                  <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }} onClick={() => handleClick(p)}>
+                    <Avatar name={p.name} size={36} party={p.party} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>
+                        {p.name} <PartyBadge party={p.party} />{levelBadge(p.level)}
+                      </div>
+                      <div style={{ fontSize: 11, color: colors.textMuted }}>{p.chamber} · {p.district}</div>
                     </div>
-                    <div style={{ fontSize: 11, color: colors.textMuted }}>{p.chamber} · {p.district}</div>
+                    <Icon type="back" size={14} color={colors.textMuted} />
                   </div>
-                  <Icon type="back" size={14} color={colors.textMuted} />
-                </div>
+                </FadeIn>
               );
             })}
           </>
@@ -1083,19 +1378,19 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.textMuted }}>
               {data.promise_score ?? "—"}
             </div>
-            <div style={{ fontSize: 9, color: colors.textMuted, fontFamily: font }}>PROMISE</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Promise</div>
           </div>
           <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.green }}>
               {v.yea_count}<span style={{ color: colors.textMuted, fontSize: 14 }}>/{v.total_tracked}</span>
             </div>
-            <div style={{ fontSize: 9, color: colors.textMuted, fontFamily: font }}>YEA VOTES</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Yea votes</div>
           </div>
           <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.accent }}>
               {fmt(f.total_raised)}
             </div>
-            <div style={{ fontSize: 9, color: colors.textMuted, fontFamily: font }}>RAISED</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Raised</div>
           </div>
         </div>
 
@@ -1145,20 +1440,20 @@ const FundingScreen = ({ onNav, profileData }) => {
         <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, fontFamily: font }}>Campaign finance from FEC filings</p>
 
         <div style={{ ...s.card, textAlign: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>TOTAL RAISED</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Total raised</div>
           <div style={{ fontSize: 28, fontWeight: 800, fontFamily: font, color: colors.accent }}>{fmt(f.total_raised)}</div>
           <div style={{ display: "flex", justifyContent: "center", gap: 20, marginTop: 8 }}>
             <div>
               <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>{fmt(f.pac_total)}</span>
-              <div style={{ fontSize: 9, color: colors.textMuted }}>PAC</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>PAC</div>
             </div>
             <div>
               <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>{fmt(f.individual_total)}</span>
-              <div style={{ fontSize: 9, color: colors.textMuted }}>Individual</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Individual</div>
             </div>
             <div>
               <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>{fmt(f.small_donor_total)}</span>
-              <div style={{ fontSize: 9, color: colors.textMuted }}>Small $</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Small $</div>
             </div>
           </div>
         </div>
@@ -1754,24 +2049,26 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
             <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.emptyList}</div>
           </div>
         )}
-        {!loading && !error && events.map((ev) => (
-          <div key={ev.id} style={{ ...s.card, cursor: "pointer" }} onClick={() => onSelectEvent?.(ev)}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ width: 44, minHeight: 44, borderRadius: 8, background: (typeColors[ev.type] || colors.accent) + "22", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: "4px 0" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{(ev.date?.split(" ")?.[1] ?? "").replace(",", "")}</div>
-                <div style={{ fontSize: 9, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{ev.date?.split(" ")?.[0] ?? ""}</div>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontWeight: 600, fontSize: 13, marginBottom: 2,
-                  display: "-webkit-box", WebkitBoxOrient: "vertical",
-                  WebkitLineClamp: 3, overflow: "hidden", lineHeight: 1.35,
-                  wordBreak: "break-word",
-                }}>{ev.title}</div>
-                <div style={{ fontSize: 11, color: colors.textMuted }}>{ev.time} · {ev.location}</div>
+        {!loading && !error && events.map((ev, i) => (
+          <FadeIn key={ev.id} delay={Math.min(i * 50, 500)}>
+            <div style={{ ...s.card, cursor: "pointer" }} onClick={() => onSelectEvent?.(ev)}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ width: 44, minHeight: 44, borderRadius: 8, background: (typeColors[ev.type] || colors.accent) + "22", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: "4px 0" }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{(ev.date?.split(" ")?.[1] ?? "").replace(",", "")}</div>
+                  <div style={{ fontSize: 9, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{ev.date?.split(" ")?.[0] ?? ""}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontWeight: 600, fontSize: 13, marginBottom: 2,
+                    display: "-webkit-box", WebkitBoxOrient: "vertical",
+                    WebkitLineClamp: 3, overflow: "hidden", lineHeight: 1.35,
+                    wordBreak: "break-word",
+                  }}>{ev.title}</div>
+                  <div style={{ fontSize: 11, color: colors.textMuted }}>{ev.time} · {ev.location}</div>
+                </div>
               </div>
             </div>
-          </div>
+          </FadeIn>
         ))}
       </div>
       <NavBar active={SCREENS.EVENTS} onNav={onNav} />
@@ -1895,7 +2192,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
           </div>
         )}
 
-        {alerts && groupAlerts(alerts).map((a) => {
+        {alerts && groupAlerts(alerts).map((a, idx) => {
           // Real alerts have richer shape than SAMPLE.alerts
           const isUrgent = a.urgent !== undefined ? a.urgent : (a.score ?? 0) > 0.6;
           const headline = a.headline || a.text;
@@ -1903,8 +2200,8 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
           const bills = a.bills || [];
           const grouped = (a.groupSize || 1) > 1;
           return (
+            <FadeIn key={a.id} delay={Math.min(idx * 50, 500)}>
             <div
-              key={a.id}
               style={{
                 ...s.card,
                 borderColor: isUrgent ? colors.red + "44" : colors.border,
@@ -1963,6 +2260,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
                 </button>
               )}
             </div>
+            </FadeIn>
           );
         })}
       </div>
@@ -2168,26 +2466,27 @@ const StateRepsScreen = ({ onNav, userState, onSelectStateRep }) => {
   const house = reps.filter((r) => r.chamber === "House");
   const other = reps.filter((r) => r.chamber !== "Senate" && r.chamber !== "House");
 
-  const renderCard = (r) => (
-    <div
-      key={r.people_id}
-      style={{ ...s.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8, cursor: "pointer" }}
-      onClick={() => onSelectStateRep?.(r.people_id)}
-    >
-      <Avatar name={r.name} size={36} party={r.party} />
-      <div style={{ flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontWeight: 600, fontSize: 13 }}>{r.name}</span>
-          <PartyBadge party={r.party} />
+  const renderCard = (r, i) => (
+    <FadeIn key={r.people_id} delay={Math.min(i * 40, 400)}>
+      <div
+        style={{ ...s.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8, cursor: "pointer" }}
+        onClick={() => onSelectStateRep?.(r.people_id)}
+      >
+        <Avatar name={r.name} size={36} party={r.party} />
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>{r.name}</span>
+            <PartyBadge party={r.party} />
+          </div>
+          <div style={{ fontSize: 11, color: colors.textMuted }}>
+            {r.chamber || r.role} · {r.district}
+          </div>
         </div>
-        <div style={{ fontSize: 11, color: colors.textMuted }}>
-          {r.chamber || r.role} · {r.district}
-        </div>
+        <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
+          <Icon type="back" size={14} />
+        </span>
       </div>
-      <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
-        <Icon type="back" size={14} />
-      </span>
-    </div>
+    </FadeIn>
   );
 
   return (
@@ -2321,13 +2620,13 @@ const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.accent }}>
               {sponsoredCount}
             </div>
-            <div style={{ fontSize: 9, color: colors.textMuted, fontFamily: font }}>SPONSORED BILLS</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Sponsored bills</div>
           </div>
           <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.blue }}>
               {data.chamber || "—"}
             </div>
-            <div style={{ fontSize: 9, color: colors.textMuted, fontFamily: font }}>CHAMBER</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Chamber</div>
           </div>
         </div>
 

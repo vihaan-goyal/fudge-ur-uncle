@@ -50,3 +50,4 @@ cache/
 
 # === Claude Code (local machine settings only) ===
 .claude/settings.local.json
+skills-lock.json
