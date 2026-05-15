@@ -32,6 +32,7 @@ const SCREENS = {
   STATE_REP_STANCES: "state_rep_stances",
   STATE_REP_PROMISES: "state_rep_promises",
   STATE_REP_ALERTS: "state_rep_alerts",
+  ASSISTANT: "assistant",
 };
 
 const font = "'IBM Plex Mono', 'Courier New', monospace";
@@ -314,6 +315,7 @@ const Icon = ({ type, size = 18, color = "currentColor" }) => {
     clock: <svg {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
     megaphone: <svg {...p}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>,
     wifi: <svg {...p}><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>,
+    sparkle: <svg {...p}><path d="M12 3l1.9 5.1 5.1 1.9-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 14l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></svg>,
   };
   return icons[type] || null;
 };
@@ -363,9 +365,9 @@ const BackButton = ({ onClick, label = "Back" }) => (
 const NavBar = ({ active, onNav }) => {
   const items = [
     { id: SCREENS.DASHBOARD, icon: "home", label: "Home" },
-    { id: SCREENS.SEARCH, icon: "search", label: "Search" },
     { id: SCREENS.ALERTS, icon: "bell", label: "Alerts" },
     { id: SCREENS.EVENTS, icon: "calendar", label: "Events" },
+    { id: SCREENS.ASSISTANT, icon: "sparkle", label: "Ask" },
     { id: SCREENS.SETTINGS, icon: "settings", label: "Settings" },
   ];
   return (
@@ -403,27 +405,20 @@ const FadeIn = ({ children, delay = 0, duration = 300, style }) => (
   </div>
 );
 
-// Civics-helper chat bottom-sheet. Lives at App level so it persists across
-// screen swaps. position:fixed (matching the pill) — anchoring to the phone
-// frame would require injecting into every screen. State is ephemeral by
-// design: closing wipes the conversation so the next open is a clean slate.
-const AssistantSheet = ({ open, onClose, context }) => {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-
-  useEffect(() => {
-    if (!open) {
-      setMessages([]);
-      setInput("");
-      setSending(false);
-      setErrorMsg("");
-    }
-  }, [open]);
-
-  if (!open) return null;
-
+// Civics-helper chat. Now a full-screen tab (not a modal sheet) so the
+// conversation is a first-class destination instead of a transient overlay.
+// Chat state is lifted to App so navigating away and back doesn't wipe the
+// thread; `context` is whatever the user was looking at right before they
+// entered the tab (set via the pill or the lastNonAssistantScreen tracker).
+const AssistantScreen = ({
+  onNav, offline,
+  context,
+  messages, setMessages,
+  input, setInput,
+  sending, setSending,
+  errorMsg, setErrorMsg,
+  onClearChat,
+}) => {
   const submit = async (overrideText) => {
     const text = (overrideText ?? input).trim();
     if (!text || sending) return;
@@ -462,50 +457,33 @@ const AssistantSheet = ({ open, onClose, context }) => {
   })();
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)",
-        zIndex: 60, animation: "fuu-fade-in 0.18s ease-out both",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label={COPY.assistant.title}
-        style={{
-          position: "fixed", left: 0, right: 0, bottom: 0,
-          maxHeight: "75%",
-          background: colors.surface,
-          borderRadius: "16px 16px 0 0",
-          display: "flex", flexDirection: "column",
-          fontFamily: fontSans,
-          animation: "fuu-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) both",
-          boxShadow: "0 -8px 24px -10px rgba(0, 0, 0, 0.18)",
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px", borderBottom: `1px solid ${colors.border}` }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: colors.text }}>{COPY.assistant.title}</div>
-            <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{COPY.assistant.subtitle}</div>
-          </div>
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.header, paddingTop: 12, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <h1 style={{ ...s.headerTitle, fontSize: 18 }}>{COPY.assistant.title}</h1>
+          <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{COPY.assistant.subtitle}</div>
+        </div>
+        {messages.length > 0 && (
           <button
             type="button"
-            onClick={onClose}
-            aria-label={COPY.assistant.close}
-            style={{ background: "none", border: "none", fontSize: 22, color: colors.textMuted, cursor: "pointer", padding: 4, lineHeight: 1 }}
-          >×</button>
-        </div>
-
+            onClick={onClearChat}
+            style={{ background: "none", border: "none", color: colors.textMuted, fontFamily: fontSans, fontSize: 12, cursor: "pointer", padding: "4px 0", flexShrink: 0 }}
+          >Clear</button>
+        )}
+      </div>
+      {/* Chat body — flex column so the input row sticks above the nav bar
+          while the message list fills the remaining space. paddingBottom
+          leaves room for the 56px NavBar. */}
+      <div style={{ ...s.body, padding: 0, display: "flex", flexDirection: "column", paddingBottom: 56 }}>
         {chipText && (
-          <div style={{ padding: "10px 16px 0" }}>
+          <div style={{ padding: "10px 20px 0" }}>
             <span style={{ display: "inline-block", background: colors.accentDim, color: colors.accent, padding: "3px 9px", borderRadius: 11, fontSize: 11, fontWeight: 600 }}>{chipText}</span>
           </div>
         )}
 
         {/* Message list */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
           {messages.length === 0 && !sending && !errorMsg && (
             <div>
               <div style={{ color: colors.textMuted, fontSize: 12, marginBottom: 10 }}>{COPY.assistant.emptyState}</div>
@@ -551,8 +529,8 @@ const AssistantSheet = ({ open, onClose, context }) => {
         </div>
 
         {/* Input row + disclaimer */}
-        <div style={{ borderTop: `1px solid ${colors.border}`, background: colors.surface, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-          <div style={{ display: "flex", gap: 8, padding: "10px 16px 8px" }}>
+        <div style={{ borderTop: `1px solid ${colors.border}`, background: colors.surface }}>
+          <div style={{ display: "flex", gap: 8, padding: "10px 20px 8px" }}>
             <input
               type="text"
               value={input}
@@ -579,11 +557,12 @@ const AssistantSheet = ({ open, onClose, context }) => {
               }}
             >{COPY.assistant.send}</button>
           </div>
-          <div style={{ padding: "0 16px 10px", fontSize: 10, color: colors.textMuted, textAlign: "center", lineHeight: 1.3 }}>
+          <div style={{ padding: "0 20px 10px", fontSize: 10, color: colors.textMuted, textAlign: "center", lineHeight: 1.3 }}>
             {COPY.assistant.disclaimer}
           </div>
         </div>
       </div>
+      <NavBar active={SCREENS.ASSISTANT} onNav={onNav} />
     </div>
   );
 };
@@ -1332,16 +1311,34 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
       <div style={{ ...s.body, paddingTop: 16, paddingBottom: 70 }}>
         {/* Greeting lives inside the scrollable body (not in a fixed
             header band) so it scrolls away with the content rather than
-            sticking at the top. */}
-        <div style={{ marginBottom: 20 }}>
-          <h1 style={{ ...s.headerTitle, fontSize: 24, fontWeight: 700, fontFamily: fontSans, textTransform: "none", letterSpacing: -0.2, margin: 0, color: colors.text }}>
-            {COPY.dashboard.greeting(currentUser?.name)}
-          </h1>
-          <p style={{ fontSize: 13, color: colors.textMuted, fontFamily: fontSans, marginTop: 4, marginBottom: 0, lineHeight: 1.4 }}>
-            {personalIssues.length > 0
-              ? COPY.dashboard.greetingSubWithIssues(userState || "CT", personalIssues.map(friendlyCategory))
-              : COPY.dashboard.greetingSub(userState || "CT")} {offline && "· offline"}
-          </p>
+            sticking at the top. Search icon sits top-right since Search
+            lost its bottom-nav slot to the Ask tab — globally reachable
+            via this affordance instead. */}
+        <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 style={{ ...s.headerTitle, fontSize: 24, fontWeight: 700, fontFamily: fontSans, textTransform: "none", letterSpacing: -0.2, margin: 0, color: colors.text }}>
+              {COPY.dashboard.greeting(currentUser?.name)}
+            </h1>
+            <p style={{ fontSize: 13, color: colors.textMuted, fontFamily: fontSans, marginTop: 4, marginBottom: 0, lineHeight: 1.4 }}>
+              {personalIssues.length > 0
+                ? COPY.dashboard.greetingSubWithIssues(userState || "CT", personalIssues.map(friendlyCategory))
+                : COPY.dashboard.greetingSub(userState || "CT")} {offline && "· offline"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNav(SCREENS.SEARCH)}
+            aria-label="Search"
+            style={{
+              width: 40, height: 40, borderRadius: "50%",
+              background: colors.surface, border: `1px solid ${colors.border}`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", color: colors.text, flexShrink: 0,
+              marginTop: 4,
+            }}
+          >
+            <Icon type="search" size={18} />
+          </button>
         </div>
 
         {/* Quick Actions first — action-first onboarding for new voters: the
@@ -1463,10 +1460,11 @@ const SearchScreen = ({ onNav, onSelectPolitician, onSelectStateRep, userState }
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
       <div style={s.header}>
+        <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} />
         <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Search</h1>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
-        <input style={{ ...s.input, marginBottom: 14 }} placeholder="Search federal + state by name..." value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input style={{ ...s.input, marginBottom: 14 }} placeholder="Search federal + state by name..." value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
         {query.length < 2 && (
           <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>
             Type at least 2 characters to search.
@@ -3397,7 +3395,25 @@ export default function App() {
   const [selectedStatePeopleId, setSelectedStatePeopleId] = useState(null);
   const [stateRepData, setStateRepData] = useState(null);
   const [globalOffline, setGlobalOffline] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
+
+  // Civics-helper chat state. Lifted out of the (now-removed) bottom sheet so
+  // navigating off the Ask tab and back doesn't wipe the conversation. Reset
+  // on logout via handleSignOut.
+  const [assistantMessages, setAssistantMessages] = useState([]);
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantSending, setAssistantSending] = useState(false);
+  const [assistantError, setAssistantError] = useState("");
+
+  // The screen the user was on right before entering the Ask tab. Drives the
+  // assistantContext below so the chatbot still knows "you came from this
+  // rep's profile / this event detail" once you've actually switched tabs.
+  // Updated on every screen change that isn't ASSISTANT itself.
+  const [lastNonAssistantScreen, setLastNonAssistantScreen] = useState(SCREENS.DASHBOARD);
+  useEffect(() => {
+    if (currentScreen !== SCREENS.ASSISTANT) {
+      setLastNonAssistantScreen(currentScreen);
+    }
+  }, [currentScreen]);
 
   // Check backend health on load
   useEffect(() => {
@@ -3458,6 +3474,9 @@ export default function App() {
     auth.clear();
     setCurrentUser(null);
     setUserIssues(["healthcare", "environment"]);
+    setAssistantMessages([]);
+    setAssistantInput("");
+    setAssistantError("");
     setCurrentScreen(SCREENS.SPLASH);
   };
 
@@ -3474,6 +3493,9 @@ export default function App() {
     auth.clear();
     setCurrentUser(null);
     setUserIssues(["healthcare", "environment"]);
+    setAssistantMessages([]);
+    setAssistantInput("");
+    setAssistantError("");
     setCurrentScreen(SCREENS.SPLASH);
   };
 
@@ -3523,6 +3545,19 @@ export default function App() {
       case SCREENS.STATE_REP_PROMISES: return <StateRepPromisesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_ALERTS: return <StateRepAlertsScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} userIssues={userIssues} onSaveIssues={handleSaveIssues} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
+      case SCREENS.ASSISTANT: return <AssistantScreen
+        {...common}
+        context={assistantContext}
+        messages={assistantMessages}
+        setMessages={setAssistantMessages}
+        input={assistantInput}
+        setInput={setAssistantInput}
+        sending={assistantSending}
+        setSending={setAssistantSending}
+        errorMsg={assistantError}
+        setErrorMsg={setAssistantError}
+        onClearChat={() => { setAssistantMessages([]); setAssistantInput(""); setAssistantError(""); }}
+      />;
       default: return <SplashScreen {...common} />;
     }
   };
@@ -3552,31 +3587,38 @@ export default function App() {
     [SCREENS.STATE_REP_STANCES, "State Stances"],
     [SCREENS.STATE_REP_PROMISES, "State Promises"],
     [SCREENS.STATE_REP_ALERTS, "State Alerts"],
+    [SCREENS.ASSISTANT, "Ask"],
     [SCREENS.SETTINGS, "Settings"],
   ];
 
   // Floating civics-helper pill — visible on every signed-in screen except
-  // splash / auth / onboarding (where the user has no learning context yet).
+  // splash / auth / onboarding (where there's no learning context yet) and
+  // the Ask tab itself (would be self-referential). Tapping the pill jumps
+  // to the Ask tab; the lastNonAssistantScreen tracker preserves the source
+  // screen so the chatbot still knows what the user was looking at.
   const PILL_HIDDEN_ON = new Set([
     SCREENS.SPLASH,
     SCREENS.LOGIN,
     SCREENS.CREATE_ACCOUNT,
     SCREENS.ISSUE_SELECT,
+    SCREENS.ASSISTANT,
   ]);
   const showAssistantPill = !!currentUser && !PILL_HIDDEN_ON.has(currentScreen);
-  const assistantPillEl = showAssistantPill && !assistantOpen && (
+  const assistantPillEl = showAssistantPill && (
     <button
       type="button"
       style={s.assistantPill}
-      onClick={() => setAssistantOpen(true)}
+      onClick={() => setCurrentScreen(SCREENS.ASSISTANT)}
       aria-label={COPY.assistant.title}
     >
       <span aria-hidden="true">✨</span>
       {COPY.assistant.pillLabel}
     </button>
   );
-  // Map the current screen + selected entities into the opaque `context` dict
+  // Map the source screen + selected entities into the opaque `context` dict
   // the backend assistant module reads (see backend/api/assistant_chat.py).
+  // When on the Ask tab itself, source = lastNonAssistantScreen so context
+  // still resolves to the rep/event/etc. the user was just looking at.
   // Sub-screens of a profile (FUNDING/VOTING_HISTORY/TIMELINE/etc.) inherit
   // their parent's rep context so "what does this rep do on healthcare?" works
   // from anywhere inside the profile cluster, not just the landing tile.
@@ -3588,40 +3630,35 @@ export default function App() {
     SCREENS.STATE_REP_PROFILE, SCREENS.STATE_REP_VOTING, SCREENS.STATE_REP_STANCES,
     SCREENS.STATE_REP_PROMISES, SCREENS.STATE_REP_ALERTS,
   ]);
+  const contextSourceScreen = currentScreen === SCREENS.ASSISTANT
+    ? lastNonAssistantScreen
+    : currentScreen;
   let assistantContext;
-  if (FEDERAL_PROFILE_SCREENS.has(currentScreen) && selectedBioguideId) {
+  if (FEDERAL_PROFILE_SCREENS.has(contextSourceScreen) && selectedBioguideId) {
     assistantContext = {
       screen: "profile",
       rep_id: selectedBioguideId,
       rep_name: profileData?.profile?.name || null,
     };
-  } else if (STATE_PROFILE_SCREENS.has(currentScreen) && selectedStatePeopleId) {
+  } else if (STATE_PROFILE_SCREENS.has(contextSourceScreen) && selectedStatePeopleId) {
     assistantContext = {
       screen: "state_profile",
       state_rep_id: selectedStatePeopleId,
       rep_name: stateRepData?.person?.name || stateRepData?.name || null,
     };
-  } else if (currentScreen === SCREENS.EVENT_DETAIL && selectedEvent) {
+  } else if (contextSourceScreen === SCREENS.EVENT_DETAIL && selectedEvent) {
     assistantContext = {
       screen: "event",
       event_title: selectedEvent.title || null,
     };
-  } else if (currentScreen === SCREENS.LEARN_TO_VOTE) {
+  } else if (contextSourceScreen === SCREENS.LEARN_TO_VOTE) {
     assistantContext = {
       screen: "learn_to_vote",
       learn_to_vote_state: userState || currentUser?.state || null,
     };
   } else {
-    assistantContext = { screen: currentScreen };
+    assistantContext = { screen: contextSourceScreen };
   }
-
-  const assistantSheetEl = (
-    <AssistantSheet
-      open={assistantOpen}
-      onClose={() => setAssistantOpen(false)}
-      context={assistantContext}
-    />
-  );
 
   // In PWA mode the app fills the viewport directly — no dev header, no
   // screen-selector pills, no centered phone-frame container. The screen
@@ -3632,7 +3669,6 @@ export default function App() {
       <>
         {renderScreen()}
         {assistantPillEl}
-        {assistantSheetEl}
       </>
     );
   }
@@ -3680,7 +3716,6 @@ export default function App() {
         {renderScreen()}
       </div>
       {assistantPillEl}
-      {assistantSheetEl}
     </div>
   );
 }
