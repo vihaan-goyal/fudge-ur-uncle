@@ -34,12 +34,6 @@ const SCREENS = {
   STATE_REP_ALERTS: "state_rep_alerts",
 };
 
-const ISSUES = [
-  "Healthcare", "Taxes", "Environment", "Immigration",
-  "Education", "Housing", "Workers' Rights", "Financial Regulation",
-  "Military/Defense", "Gun Policy", "Criminal Justice", "Technology/Privacy",
-];
-
 const font = "'IBM Plex Mono', 'Courier New', monospace";
 const fontSans = "'IBM Plex Sans', 'Helvetica Neue', sans-serif";
 
@@ -579,17 +573,19 @@ const LoginScreen = ({ onNav, onSignedIn, offline }) => {
 
 // 4. ISSUE SELECT
 const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
-  const initial = (currentUser?.issues && currentUser.issues.length > 0)
-    ? currentUser.issues.slice(0, 5)
-    : ["Healthcare", "Environment"];
+  // Seed from stored issues, but drop legacy display-string values
+  // ("Healthcare") that don't match a category key — they came from an
+  // earlier storage format and would render as a chip nobody can toggle.
+  const stored = (currentUser?.issues || []).filter((k) => COPY.categories[k]).slice(0, 5);
+  const initial = stored.length ? stored : ["healthcare", "environment"];
   const [selected, setSelected] = useState(initial);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   const atMax = selected.length >= 5;
-  const toggle = (issue) => {
-    if (selected.includes(issue)) setSelected(selected.filter((i) => i !== issue));
-    else if (!atMax) setSelected([...selected, issue]);
+  const toggle = (key) => {
+    if (selected.includes(key)) setSelected(selected.filter((i) => i !== key));
+    else if (!atMax) setSelected([...selected, key]);
   };
 
   const done = async () => {
@@ -612,9 +608,9 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
         <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>What Issues Matter Most?</h2>
         <p style={{ color: colors.textMuted, fontSize: 12, marginTop: 0, marginBottom: 16 }}>Select up to 5. This filters your alerts and feed.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-          {ISSUES.map((issue) => (
-            <button key={issue} style={s.chip(selected.includes(issue))} onClick={() => toggle(issue)}>
-              {issue}
+          {Object.keys(COPY.categories).map((key) => (
+            <button key={key} style={s.chip(selected.includes(key))} onClick={() => toggle(key)}>
+              {friendlyCategory(key)}
             </button>
           ))}
         </div>
@@ -724,44 +720,50 @@ const RepCard = ({ rep, onClick }) => {
 };
 
 // 5. DASHBOARD - WIRED TO BACKEND (streaming)
-const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser }) => {
+const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, userIssues }) => {
   const { data, loading, error, offline, reload } = useApi(
     () => api.getRepsByState(userState || "CT"),
     [userState],
     { representatives: [], state: userState || "CT", count: 0 }
   );
 
-  // "Coming up" feed — pulls a small batch of alerts and reframes them as
-  // upcoming votes (no scandal framing, just "here's what's happening").
-  // Not urgent-only so newcomers see actual activity, not just flagged pairs.
-  const { data: alertData, offline: alertsOffline } = useApi(
-    () => api.getAlerts({ urgentOnly: false, limit: 6 }),
-    [],
-    { alerts: [] }
+  // "Coming up" feed — dedicated /api/upcoming-votes endpoint reads
+  // scheduled_votes directly, so unlike /api/alerts each bill appears once.
+  // Personalised by user's stored issues (sent via auth header by the
+  // optionally-authenticated endpoint); explicit prop pass keeps the deps
+  // array honest so the fetch refires when preferences change.
+  const personalIssues = (userIssues || [])
+    .filter((k) => k && COPY.categories[k]);
+  const personalKey = personalIssues.join(",");
+  const { data: upcomingData, offline: upcomingOffline } = useApi(
+    () => api.getUpcomingVotes({
+      state: userState,
+      categories: personalIssues.length ? personalIssues : undefined,
+      limit: 6,
+    }),
+    [userState, personalKey],
+    { votes: [] }
   );
 
   const reps = data?.representatives || [];
-  const isOffline = offline || alertsOffline;
+  const isOffline = offline || upcomingOffline;
 
-  const rawAlerts = alertData?.alerts?.length
-    ? alertData.alerts
-    : (isOffline ? SAMPLE.alerts.filter((a) => a.vote) : []);
-
-  // Dedupe by bill_number — alerts pair a donation with a vote, so the same
-  // bill can appear multiple times (one per donor industry). For "coming up"
-  // we only care about the bill itself.
-  const upcoming = [];
-  const seenBills = new Set();
-  for (const a of rawAlerts) {
-    const bill = a.vote?.bill_number;
-    const category = a.vote?.category;
-    if (!category) continue;
-    const key = bill || `${category}-${a.id}`;
-    if (seenBills.has(key)) continue;
-    seenBills.add(key);
-    upcoming.push({ id: a.id, billNumber: bill, category });
-    if (upcoming.length >= 3) break;
-  }
+  // Offline fallback: synthesize vote rows from SAMPLE.alerts so the render
+  // path only sees one model. days_until omitted because sample data has no
+  // real schedule — the relative-time line will skip when null.
+  const upcoming = upcomingData?.votes?.length
+    ? upcomingData.votes.slice(0, 3)
+    : (isOffline
+        ? SAMPLE.alerts
+            .filter((a) => a.vote)
+            .slice(0, 3)
+            .map((a) => ({
+              id: a.id,
+              bill_number: a.vote.bill_number,
+              category: a.vote.category,
+              days_until: null,
+            }))
+        : []);
 
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
@@ -775,7 +777,9 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser }) 
             {COPY.dashboard.greeting(currentUser?.name)}
           </h1>
           <p style={{ ...s.headerSub, fontSize: 12, marginTop: 2, marginBottom: 0 }}>
-            {COPY.dashboard.greetingSub(userState || "CT")} {offline && "· offline"}
+            {personalIssues.length > 0
+              ? COPY.dashboard.greetingSubWithIssues(userState || "CT", personalIssues.map(friendlyCategory))
+              : COPY.dashboard.greetingSub(userState || "CT")} {offline && "· offline"}
           </p>
         </div>
 
@@ -802,46 +806,54 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser }) 
         {/* Coming up — one card, tight rows. Section header carries the
             framing so we don't repeat "Your reps will weigh in on" per row.
             The whole card is one tap target into the alerts feed. */}
-        {upcoming.length > 0 && (
-          <div style={s.section}>
-            <div style={s.sectionTitleFriendly}>{COPY.dashboard.comingUpTitle}</div>
-            <button
-              style={{
-                ...s.card,
-                cursor: "pointer",
-                textAlign: "left",
-                width: "100%",
-                padding: "10px 14px",
-              }}
-              onClick={() => onNav(SCREENS.ALERTS)}
-            >
-              <div style={{ fontSize: 10, color: colors.textMuted, marginBottom: 6, letterSpacing: 0.3, fontFamily: font }}>
-                {COPY.dashboard.comingUpSubtitle}
+        <div style={s.section}>
+          <div style={s.sectionTitleFriendly}>{COPY.dashboard.comingUpTitle}</div>
+          <button
+            style={{
+              ...s.card,
+              cursor: "pointer",
+              textAlign: "left",
+              width: "100%",
+              padding: "10px 14px",
+            }}
+            onClick={() => onNav(SCREENS.ALERTS)}
+          >
+            <div style={{ fontSize: 10, color: colors.textMuted, marginBottom: 6, letterSpacing: 0.3, fontFamily: font }}>
+              {COPY.dashboard.comingUpSubtitle}
+            </div>
+            {upcoming.length === 0 ? (
+              <div style={{ fontSize: 12, color: colors.textMuted, fontFamily: fontSans, padding: "6px 0" }}>
+                {COPY.dashboard.comingUpEmpty}
               </div>
-              {upcoming.map((u, i) => (
+            ) : (
+              upcoming.map((u, i) => (
                 <div
                   key={u.id}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
                     padding: "6px 0",
                     borderTop: i === 0 ? "none" : `1px solid ${colors.border}`,
                   }}
                 >
-                  <span style={{ fontSize: 13, fontWeight: 500, fontFamily: fontSans, color: colors.text }}>
-                    {friendlyCategory(u.category)}
-                  </span>
-                  {u.billNumber && (
-                    <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
-                      {u.billNumber}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, fontFamily: fontSans, color: colors.text }}>
+                      {friendlyCategory(u.category)}
                     </span>
+                    {u.bill_number && (
+                      <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>
+                        {u.bill_number}
+                      </span>
+                    )}
+                  </div>
+                  {u.days_until !== null && u.days_until !== undefined && (
+                    <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 2 }}>
+                      {COPY.dashboard.comingUpRelative(u.days_until)}
+                    </div>
                   )}
                 </div>
-              ))}
-            </button>
-          </div>
-        )}
+              ))
+            )}
+          </button>
+        </div>
 
         {loading && <Loading label="Fetching your representatives..." />}
         {error && <ErrorBanner error={error} onRetry={reload} />}
@@ -1960,10 +1972,35 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
 }
 
 // 17. SETTINGS
-const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, onSignOut, onDeleteAccount }) => {
+const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues, onSaveIssues, onSignOut, onDeleteAccount }) => {
   const [editState, setEditState] = useState(userState || "CT");
   const [backendStatus, setBackendStatus] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
+  // Issues editor — seeds from the userIssues prop (already filtered to keys),
+  // ignoring legacy display-string values that don't match a category key.
+  const [selectedIssues, setSelectedIssues] = useState(
+    () => (userIssues || []).filter((k) => COPY.categories[k])
+  );
+  const [issuesStatus, setIssuesStatus] = useState(null);
+  const ISSUES_MAX = 5;
+  const atMaxIssues = selectedIssues.length >= ISSUES_MAX;
+  const toggleIssue = (key) => {
+    setIssuesStatus(null);
+    if (selectedIssues.includes(key)) {
+      setSelectedIssues(selectedIssues.filter((k) => k !== key));
+    } else if (!atMaxIssues) {
+      setSelectedIssues([...selectedIssues, key]);
+    }
+  };
+  const saveIssues = async () => {
+    setIssuesStatus({ saving: true });
+    try {
+      await onSaveIssues(selectedIssues);
+      setIssuesStatus({ ok: true, msg: COPY.settings.issuesSaved });
+    } catch (e) {
+      setIssuesStatus({ ok: false, msg: e.detail || e.message || COPY.settings.issuesSaveError });
+    }
+  };
 
   useEffect(() => {
     api.health()
@@ -2032,6 +2069,37 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, onSignOut,
                 {saveStatus.msg}
               </div>
             )}
+          </div>
+        </div>
+
+        <div style={s.section}>
+          <div style={s.sectionTitle}>{COPY.settings.issuesTitle}</div>
+          <div style={s.card}>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginBottom: 10 }}>
+              {COPY.settings.issuesHint}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              {Object.keys(COPY.categories).map((key) => (
+                <button key={key} style={s.chip(selectedIssues.includes(key))} onClick={() => toggleIssue(key)}>
+                  {friendlyCategory(key)}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: atMaxIssues ? colors.accent : colors.textMuted, fontFamily: font, marginBottom: 10 }}>
+              {COPY.settings.issuesCounter(selectedIssues.length, ISSUES_MAX)}
+            </div>
+            {issuesStatus && !issuesStatus.saving && (
+              <div style={{ fontSize: 11, marginBottom: 8, fontFamily: font, color: issuesStatus.ok ? colors.green : colors.red }}>
+                {issuesStatus.msg}
+              </div>
+            )}
+            <button
+              style={{ ...s.btn("primary"), opacity: issuesStatus?.saving ? 0.6 : 1 }}
+              disabled={issuesStatus?.saving}
+              onClick={saveIssues}
+            >
+              {issuesStatus?.saving ? COPY.settings.issuesSaving : "Save"}
+            </button>
           </div>
         </div>
 
@@ -2708,7 +2776,7 @@ export default function App() {
   const [selectedBioguideId, setSelectedBioguideId] = useState("M001169");
   const [userState, setUserState] = useState(() => auth.getUser()?.state || "CT");
   const [currentUser, setCurrentUser] = useState(() => auth.getUser());
-  const [userIssues, setUserIssues] = useState(() => auth.getUser()?.issues || ["Healthcare", "Environment"]);
+  const [userIssues, setUserIssues] = useState(() => auth.getUser()?.issues || ["healthcare", "environment"]);
   const [profileData, setProfileData] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedStatePeopleId, setSelectedStatePeopleId] = useState(null);
@@ -2773,7 +2841,7 @@ export default function App() {
     try { await api.logout(); } catch { /* ignore */ }
     auth.clear();
     setCurrentUser(null);
-    setUserIssues(["Healthcare", "Environment"]);
+    setUserIssues(["healthcare", "environment"]);
     setCurrentScreen(SCREENS.SPLASH);
   };
 
@@ -2789,7 +2857,7 @@ export default function App() {
     }
     auth.clear();
     setCurrentUser(null);
-    setUserIssues(["Healthcare", "Environment"]);
+    setUserIssues(["healthcare", "environment"]);
     setCurrentScreen(SCREENS.SPLASH);
   };
 
@@ -2819,7 +2887,7 @@ export default function App() {
       case SCREENS.CREATE_ACCOUNT: return <CreateAccountScreen {...common} onSignedIn={handleSignedIn} />;
       case SCREENS.LOGIN: return <LoginScreen {...common} onSignedIn={handleSignedIn} />;
       case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} currentUser={currentUser} onSaveIssues={handleSaveIssues} />;
-      case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} currentUser={currentUser} />;
+      case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} currentUser={currentUser} userIssues={userIssues} />;
       case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} onSelectStateRep={selectStateRep} userState={userState} />;
       case SCREENS.POLITICIAN_PROFILE: return <PoliticianProfileScreen {...common} bioguideId={selectedBioguideId} onSetProfileData={setProfileData} />;
       case SCREENS.FUNDING: return <FundingScreen {...common} profileData={profileData} />;
@@ -2838,7 +2906,7 @@ export default function App() {
       case SCREENS.STATE_REP_STANCES: return <StateRepStancesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_PROMISES: return <StateRepPromisesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_ALERTS: return <StateRepAlertsScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
-      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
+      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} userIssues={userIssues} onSaveIssues={handleSaveIssues} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
       default: return <SplashScreen {...common} />;
     }
   };

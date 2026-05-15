@@ -240,6 +240,20 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     return _user_payload(row)
 
 
+async def get_current_user_optional(
+    authorization: Optional[str] = Header(None),
+) -> Optional[dict]:
+    """Like `get_current_user` but returns None on missing/invalid token
+    instead of raising. Lets endpoints accept anonymous traffic while still
+    applying user preferences when a valid session is present."""
+    if not authorization:
+        return None
+    try:
+        return await get_current_user(authorization)
+    except HTTPException:
+        return None
+
+
 # ---- Endpoints ----
 
 @router.post("/signup")

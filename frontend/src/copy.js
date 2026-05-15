@@ -18,10 +18,20 @@ export const COPY = {
     },
     greetingSub: (state) =>
       state ? `Here's what's happening in ${state}` : "Here's what's happening",
+    // Personalised variant — when the user has issues selected, fold them
+    // into the subline so they see the feed reflects their picks.
+    greetingSubWithIssues: (state, issueLabels) => {
+      const issues = issueLabels.join(", ").toLowerCase();
+      return state
+        ? `Here's what's happening in ${state} around ${issues}`
+        : `Here's what's happening around ${issues}`;
+    },
     repsSectionTitle: "Your reps",
     comingUpTitle: "Coming up",
     comingUpSubtitle: "Your reps are voting on",
     comingUpEmpty: "Nothing scheduled yet — check back soon.",
+    comingUpRelative: (days) =>
+      days <= 0 ? "today" : days === 1 ? "in 1 day" : `in ${days} days`,
     quickActionsTitle: "Start here",
     quickActions: {
       contactRep: "Reach your rep",
@@ -72,6 +82,16 @@ export const COPY = {
     stateFallbackName: "State Legislator",
     stateFooterNote:
       "State alerts use FTM industry aggregates and Legiscan engrossed-bill statuses. Scores typically run lower than federal alerts because aggregate data carries less per-donation signal.",
+  },
+  settings: {
+    accountTitle: "Account",
+    locationTitle: "Location",
+    issuesTitle: "Issues you care about",
+    issuesHint: "We'll prioritize upcoming votes in these areas. Pick up to 5.",
+    issuesSaving: "Saving...",
+    issuesSaved: "Saved",
+    issuesSaveError: "Couldn't save",
+    issuesCounter: (n, max) => `${n}/${max} selected`,
   },
   // Plain-language category labels (used by the "coming up" feed). Sentence-
   // case so they read well as standalone chips. Falls back to a humanized

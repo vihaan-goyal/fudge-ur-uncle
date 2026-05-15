@@ -156,6 +156,13 @@ export const api = {
       return apiRequest(`/api/alerts?${params}`);
     },
 
+    getUpcomingVotes: ({ state, categories, limit = 6 } = {}) => {
+      const params = new URLSearchParams({ limit });
+      if (state) params.set("state", state);
+      if (categories?.length) params.set("categories", categories.join(","));
+      return apiRequest(`/api/upcoming-votes?${params}`);
+    },
+
     getAlertsForRep: (bioguideId, limit = 20) =>
       apiRequest(`/api/alerts/by-rep/${encodeURIComponent(bioguideId)}?limit=${limit}`),
 

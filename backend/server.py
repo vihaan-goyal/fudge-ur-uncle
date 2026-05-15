@@ -17,6 +17,7 @@ from api import legislators, openfec, congress_gov, whoboughtmyrep, events
 from api import guardian, news, ai_summary, stance_analysis, promises, legiscan, state_sites
 from api.alerts_router import router as alerts_router
 from api.auth import router as auth_router
+from api.upcoming_votes_router import router as upcoming_votes_router
 import config
 
 app = FastAPI(
@@ -37,6 +38,7 @@ app.add_middleware(
 
 app.include_router(alerts_router)
 app.include_router(auth_router)
+app.include_router(upcoming_votes_router)
 
 
 @app.on_event("startup")
