@@ -168,9 +168,9 @@ export const COPY = {
     foreign_policy: "Foreign policy",
   },
   assistant: {
-    pillLabel: "Ask",
-    title: "Civics helper",
-    subtitle: "Ask anything about how this works",
+    pillLabel: "Mamu",
+    title: "Mamu",
+    subtitle: "Your civics-savvy Mamu — ask anything",
     placeholder: "Type your question…",
     sending: "Thinking…",
     send: "Send",

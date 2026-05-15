@@ -367,7 +367,7 @@ const NavBar = ({ active, onNav }) => {
     { id: SCREENS.DASHBOARD, icon: "home", label: "Home" },
     { id: SCREENS.ALERTS, icon: "bell", label: "Alerts" },
     { id: SCREENS.EVENTS, icon: "calendar", label: "Events" },
-    { id: SCREENS.ASSISTANT, icon: "sparkle", label: "Ask" },
+    { id: SCREENS.ASSISTANT, icon: "sparkle", label: "Mamu" },
     { id: SCREENS.SETTINGS, icon: "settings", label: "Settings" },
   ];
   return (
@@ -3587,7 +3587,7 @@ export default function App() {
     [SCREENS.STATE_REP_STANCES, "State Stances"],
     [SCREENS.STATE_REP_PROMISES, "State Promises"],
     [SCREENS.STATE_REP_ALERTS, "State Alerts"],
-    [SCREENS.ASSISTANT, "Ask"],
+    [SCREENS.ASSISTANT, "Mamu"],
     [SCREENS.SETTINGS, "Settings"],
   ];
 
