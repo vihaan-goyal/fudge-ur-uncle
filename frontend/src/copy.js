@@ -2,6 +2,10 @@
 // single place — currently leaning "friendly to new voters / immigrants"
 // rather than the original "accountability watchdog" framing. If we ever
 // add a noob/pro flag, this becomes the swap point.
+//
+// Deeper screens (alerts, events, profiles) still use the all-caps
+// "terminal" aesthetic for section labels — centralizing those here too
+// so the swap point covers the whole app, not just the dashboard.
 
 export const COPY = {
   dashboard: {
@@ -26,6 +30,48 @@ export const COPY = {
       followMoney: "Who funds them",
       stateReps: "Your state lawmakers",
     },
+  },
+  events: {
+    listTitle: "Federal Committee Hearings",
+    listSubtitle: "U.S. Congress · upcoming meetings",
+    offlineBadge: "OFFLINE — SAMPLE DATA",
+    offlineBody: "Could not reach the server. Showing example events.",
+    emptyList: "No upcoming events found.",
+    backLabel: "Events",
+    noEventSelected: "No event selected.",
+    aiSummaryLabel: "AI SUMMARY",
+    aiSummaryLoading: "Generating summary...",
+    aiSummaryEmpty: "Summary unavailable.",
+    scheduleLabel: "SCHEDULE",
+    scheduleDate: "Date",
+    scheduleTime: "Time",
+    schedulePlace: "Place",
+    committeesLabel: (n) => (n > 1 ? "COMMITTEES" : "COMMITTEE"),
+    witnessesLabel: "WITNESSES",
+    legislationLabel: "LEGISLATION",
+    newsLabel: "NEWS COVERAGE",
+    newsLoading: "Finding related article...",
+    newsEmpty: "No recent coverage found.",
+  },
+  alerts: {
+    title: "Alerts",
+    subtitle: "Donation + vote correlations",
+    chipAll: "All",
+    chipUrgent: "Urgent only",
+    urgentBadge: "URGENT",
+    offlineBadge: "Showing sample alerts (backend offline)",
+    loading: "Loading alerts...",
+    emptyHint: "No alerts right now. Run the pipeline:",
+    viewRepButton: "View Rep",
+    moreBills: (k) => `(+${k} more)`,
+    // State variant
+    stateSubtitle: "Industry donations × upcoming state votes",
+    stateLoading: "Loading alerts…",
+    stateEmptyTitle: "No alerts for this legislator yet.",
+    stateEmptyHint: "Run the state ingestion pipeline:",
+    stateFallbackName: "State Legislator",
+    stateFooterNote:
+      "State alerts use FTM industry aggregates and Legiscan engrossed-bill statuses. Scores typically run lower than federal alerts because aggregate data carries less per-donation signal.",
   },
   // Plain-language category labels (used by the "coming up" feed). Sentence-
   // case so they read well as standalone chips. Falls back to a humanized
@@ -53,4 +99,13 @@ export const friendlyCategory = (raw) => {
   if (COPY.categories[raw]) return COPY.categories[raw];
   const humanized = raw.replace(/_/g, " ");
   return humanized.charAt(0).toUpperCase() + humanized.slice(1);
+};
+
+// Inline variant — lowercased for mid-sentence use ("5 upcoming foreign
+// policy bills"). Falls back to "" when raw is missing so the surrounding
+// sentence still parses.
+export const friendlyCategoryInline = (raw) => {
+  if (!raw) return "";
+  const label = COPY.categories[raw] || raw.replace(/_/g, " ");
+  return label.toLowerCase();
 };

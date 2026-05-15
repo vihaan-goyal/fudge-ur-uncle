@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api, auth, SAMPLE } from "./api.js";
 import { groupAlerts } from "./groupAlerts.js";
-import { COPY, friendlyCategory } from "./copy.js";
+import { COPY, friendlyCategory, friendlyCategoryInline } from "./copy.js";
 
 // ============================================================
 // CONSTANTS
@@ -1580,8 +1580,8 @@ const EventDetailScreen = ({ onNav, event }) => {
       <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
         <StatusBar />
         <div style={s.body}>
-          <BackButton onClick={() => onNav(SCREENS.EVENTS)} label="Events" />
-          <div style={s.card}><div style={{ fontSize: 12, color: colors.textMuted }}>No event selected.</div></div>
+          <BackButton onClick={() => onNav(SCREENS.EVENTS)} label={COPY.events.backLabel} />
+          <div style={s.card}><div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.noEventSelected}</div></div>
         </div>
         <NavBar active={SCREENS.EVENTS} onNav={onNav} />
       </div>
@@ -1594,7 +1594,7 @@ const EventDetailScreen = ({ onNav, event }) => {
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar />
       <div style={s.header}>
-        <BackButton onClick={() => onNav(SCREENS.EVENTS)} label="Events" />
+        <BackButton onClick={() => onNav(SCREENS.EVENTS)} label={COPY.events.backLabel} />
         <h1 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 2 }}>{`${event.chamber || ""} ${event.meeting_type || "Meeting"}`.trim()}</h1>
         {event.congress && (
           <p style={s.headerSub}>{event.congress}th Congress</p>
@@ -1613,31 +1613,31 @@ const EventDetailScreen = ({ onNav, event }) => {
 
         {/* AI Summary */}
         <div style={{ ...s.card, marginBottom: 10, borderLeft: `3px solid ${colors.accent}44` }}>
-          <div style={{ fontSize: 10, color: colors.accent, fontWeight: 700, marginBottom: 6, fontFamily: font, letterSpacing: "0.05em" }}>AI SUMMARY</div>
+          <div style={{ fontSize: 10, color: colors.accent, fontWeight: 700, marginBottom: 6, fontFamily: font, letterSpacing: "0.05em" }}>{COPY.events.aiSummaryLabel}</div>
           {summaryLoading && (
-            <div style={{ fontSize: 12, color: colors.textMuted }}>Generating summary...</div>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.aiSummaryLoading}</div>
           )}
           {!summaryLoading && summary && (
             <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.6 }}>{summary}</div>
           )}
           {!summaryLoading && !summary && (
-            <div style={{ fontSize: 12, color: colors.textMuted }}>Summary unavailable.</div>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.aiSummaryEmpty}</div>
           )}
         </div>
 
         <div style={{ ...s.card, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>SCHEDULE</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.scheduleLabel}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>Date</span>
+              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>{COPY.events.scheduleDate}</span>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{event.date}</span>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>Time</span>
+              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>{COPY.events.scheduleTime}</span>
               <span style={{ fontSize: 13 }}>{event.time}</span>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>Place</span>
+              <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>{COPY.events.schedulePlace}</span>
               <span style={{ fontSize: 13 }}>{event.location}</span>
             </div>
           </div>
@@ -1646,7 +1646,7 @@ const EventDetailScreen = ({ onNav, event }) => {
         {event.committees?.length > 0 && (
           <div style={{ ...s.card, marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>
-              {event.committees.length > 1 ? "COMMITTEES" : "COMMITTEE"}
+              {COPY.events.committeesLabel(event.committees.length)}
             </div>
             {event.committees.map((name, i) => (
               <div key={i} style={{ fontSize: 13, color: colors.text, lineHeight: 1.5 }}>{name}</div>
@@ -1656,7 +1656,7 @@ const EventDetailScreen = ({ onNav, event }) => {
 
         {event.witnesses?.length > 0 && (
           <div style={{ ...s.card, marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>WITNESSES</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.witnessesLabel}</div>
             {event.witnesses.map((w, i) => (
               <div key={i} style={{ marginBottom: i < event.witnesses.length - 1 ? 8 : 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
@@ -1669,7 +1669,7 @@ const EventDetailScreen = ({ onNav, event }) => {
         {/* Bills being considered */}
         {event.bills?.length > 0 && (
           <div style={{ ...s.card, marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>LEGISLATION</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.legislationLabel}</div>
             {event.bills.map((b, i) => (
               <a key={i} href={b.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block", marginBottom: i < event.bills.length - 1 ? 10 : 0 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: colors.accent, fontFamily: font, marginBottom: 2 }}>{b.bill}</div>
@@ -1681,10 +1681,10 @@ const EventDetailScreen = ({ onNav, event }) => {
 
         {/* Related news article */}
         <div style={{ ...s.card, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>NEWS COVERAGE</div>
-          {articleLoading && <div style={{ fontSize: 12, color: colors.textMuted }}>Finding related article...</div>}
+          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.newsLabel}</div>
+          {articleLoading && <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.newsLoading}</div>}
           {!articleLoading && !article && (
-            <div style={{ fontSize: 12, color: colors.textMuted }}>No recent coverage found.</div>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.newsEmpty}</div>
           )}
           {!articleLoading && article && (
             <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block" }}>
@@ -1723,15 +1723,15 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
       <div style={s.header}>
-        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Federal Committee Hearings</h1>
-        <p style={s.headerSub}>U.S. Congress · upcoming meetings</p>
+        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>{COPY.events.listTitle}</h1>
+        <p style={s.headerSub}>{COPY.events.listSubtitle}</p>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
         {offline && (
           <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
-            <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>OFFLINE — SAMPLE DATA</div>
+            <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>{COPY.events.offlineBadge}</div>
             <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>
-              Could not reach the server. Showing example events.
+              {COPY.events.offlineBody}
             </div>
           </div>
         )}
@@ -1739,7 +1739,7 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
         {error && <ErrorBanner error={error} onRetry={reload} />}
         {!loading && !error && events.length === 0 && (
           <div style={s.card}>
-            <div style={{ fontSize: 12, color: colors.textMuted }}>No upcoming events found.</div>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.emptyList}</div>
           </div>
         )}
         {!loading && !error && events.map((ev) => (
@@ -1839,8 +1839,8 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar />
       <div style={s.header}>
-        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Alerts</h1>
-        <p style={s.headerSub}>Donation + vote correlations</p>
+        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>{COPY.alerts.title}</h1>
+        <p style={s.headerSub}>{COPY.alerts.subtitle}</p>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
         {/* Filter toggle */}
@@ -1849,20 +1849,20 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
             style={s.chip(!urgentOnly)}
             onClick={() => setUrgentOnly(false)}
           >
-            All
+            {COPY.alerts.chipAll}
           </button>
           <button
             style={s.chip(urgentOnly)}
             onClick={() => setUrgentOnly(true)}
           >
-            Urgent only
+            {COPY.alerts.chipUrgent}
           </button>
         </div>
 
         {error && (
           <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>
-              Showing sample alerts (backend offline)
+              {COPY.alerts.offlineBadge}
             </div>
             <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>
               {error}
@@ -1870,12 +1870,12 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
           </div>
         )}
 
-        {alerts === null && <Loading label="Loading alerts..." />}
+        {alerts === null && <Loading label={COPY.alerts.loading} />}
 
         {alerts && alerts.length === 0 && (
           <div style={s.card}>
             <div style={{ fontSize: 13 }}>
-              No alerts right now. Run the pipeline:{" "}
+              {COPY.alerts.emptyHint}{" "}
               <code style={{ fontFamily: font, color: colors.accent }}>
                 python -m backend.alerts.pipeline
               </code>
@@ -1900,7 +1900,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                {isUrgent && <span style={s.badge("red")}>URGENT</span>}
+                {isUrgent && <span style={s.badge("red")}>{COPY.alerts.urgentBadge}</span>}
                 <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginLeft: "auto" }}>
                   {time}
                 </span>
@@ -1911,7 +1911,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
               {grouped ? (
                 <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
                   <div style={{ marginBottom: 6 }}>
-                    {a.groupSize} upcoming {a.vote?.category || ""} bills
+                    {a.groupSize} upcoming {friendlyCategoryInline(a.vote?.category)} bills
                     {a.donation?.amount ? ` · $${Number(a.donation.amount).toLocaleString()} lifetime` : ""}
                   </div>
                   {bills.slice(0, 3).map((v, i) => (
@@ -1922,7 +1922,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
                   ))}
                   {bills.length > 3 && (
                     <div style={{ marginLeft: 2, marginTop: 2, fontStyle: "italic" }}>
-                      (+{bills.length - 3} more)
+                      {COPY.alerts.moreBills(bills.length - 3)}
                     </div>
                   )}
                 </div>
@@ -1947,7 +1947,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
                   style={{ ...s.btn("outline"), padding: "6px 10px", fontSize: 11, marginTop: 10, width: "auto" }}
                   onClick={() => onSelectPolitician(a.bioguide_id)}
                 >
-                  View Rep
+                  {COPY.alerts.viewRepButton}
                 </button>
               )}
             </div>
@@ -2555,7 +2555,7 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
 };
 
 const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
-  const name = stateRepData?.name || "State Legislator";
+  const name = stateRepData?.name || COPY.alerts.stateFallbackName;
   const [alerts, setAlerts] = useState(null);
   const [error, setError] = useState(null);
 
@@ -2583,27 +2583,27 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
       <StatusBar />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Alerts</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.alerts.title}</h2>
         <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
-          Industry donations × upcoming state votes
+          {COPY.alerts.stateSubtitle}
         </div>
 
         {error && (
           <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44", marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: colors.yellow, fontWeight: 600, marginBottom: 4 }}>
-              Showing sample alerts (backend offline)
+              {COPY.alerts.offlineBadge}
             </div>
             <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.4 }}>{error}</div>
           </div>
         )}
 
-        {alerts === null && <Loading label="Loading alerts…" />}
+        {alerts === null && <Loading label={COPY.alerts.stateLoading} />}
 
         {alerts && alerts.length === 0 && !error && (
           <div style={s.card}>
-            <div style={{ fontSize: 13 }}>No alerts for this legislator yet.</div>
+            <div style={{ fontSize: 13 }}>{COPY.alerts.stateEmptyTitle}</div>
             <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 6, lineHeight: 1.5 }}>
-              Run the state ingestion pipeline:{" "}
+              {COPY.alerts.stateEmptyHint}{" "}
               <code style={{ fontFamily: font, color: colors.accent }}>
                 python -m backend.alerts.ingest_ftm --state {stateRepData?.state || "CT"}
               </code>{" "}
@@ -2633,7 +2633,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-              {a.urgent && <span style={s.badge("red")}>URGENT</span>}
+              {a.urgent && <span style={s.badge("red")}>{COPY.alerts.urgentBadge}</span>}
               <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginLeft: "auto" }}>
                 {a.time || "recently"}
               </span>
@@ -2644,7 +2644,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
             {grouped ? (
               <div style={{ fontSize: 11, color: colors.textMuted, lineHeight: 1.45, marginBottom: 8 }}>
                 <div style={{ marginBottom: 6 }}>
-                  {a.groupSize} upcoming {a.vote?.category || ""} bills
+                  {a.groupSize} upcoming {friendlyCategoryInline(a.vote?.category)} bills
                   {a.donation?.amount ? ` · ${fmtMoney(a.donation.amount)} lifetime` : ""}
                 </div>
                 {bills.slice(0, 3).map((v, i) => (
@@ -2655,7 +2655,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
                 ))}
                 {bills.length > 3 && (
                   <div style={{ marginLeft: 2, marginTop: 2, fontStyle: "italic" }}>
-                    (+{bills.length - 3} more)
+                    {COPY.alerts.moreBills(bills.length - 3)}
                   </div>
                 )}
               </div>
@@ -2690,7 +2690,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
 
         {isReal && alerts && alerts.length > 0 && (
           <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
-            State alerts use FTM industry aggregates and Legiscan engrossed-bill statuses. Scores typically run lower than federal alerts because aggregate data carries less per-donation signal.
+            {COPY.alerts.stateFooterNote}
           </div>
         )}
       </div>
