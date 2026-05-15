@@ -168,7 +168,7 @@ const s = {
     padding: "12px 20px", overflowY: "auto", flex: 1,
     // Flow-in on every screen mount — fades + 8px settle so navigating
     // between screens feels physical instead of a hard cut.
-    animation: "fuu-fade-up 0.42s cubic-bezier(0.16, 1, 0.3, 1) both",
+    animation: "fuu-fade-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
   },
   navBar: {
     height: 56, display: "flex", borderTop: `1px solid ${colors.border}`,
@@ -359,7 +359,7 @@ const Loading = ({ label = "Loading..." }) => (
 // settles in instead of popping. For lists, pass `delay = i * 60` to
 // stagger. `style` is merged onto the wrapper so callers can preserve
 // surrounding layout (gridColumn, marginBottom, etc.).
-const FadeIn = ({ children, delay = 0, duration = 420, style }) => (
+const FadeIn = ({ children, delay = 0, duration = 300, style }) => (
   <div style={{
     animation: `fuu-fade-up ${duration}ms cubic-bezier(0.16, 1, 0.3, 1) both`,
     animationDelay: `${delay}ms`,
@@ -903,8 +903,8 @@ const ComingUpRow = ({ row, index, isFirst }) => {
         borderTop: isFirst ? "none" : `1px solid ${colors.border}`,
         background: imminent && isFirst ? colors.accentDim : "transparent",
         opacity: 0,
-        animation: "fuu-fade-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both",
-        animationDelay: `${60 + index * 70}ms`,
+        animation: "fuu-fade-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) both",
+        animationDelay: `${80 + index * 95}ms`,
       }}
     >
       <div style={{
@@ -1162,7 +1162,7 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
           <div style={s.section}>
             <div style={s.sectionTitleFriendly}>{COPY.dashboard.repsSectionTitle}</div>
             {reps.map((rep, i) => (
-              <FadeIn key={rep.bioguide_id} delay={Math.min(i * 60, 480)}>
+              <FadeIn key={rep.bioguide_id} delay={Math.min(i * 130, 780)}>
                 <RepCard
                   rep={rep}
                   onClick={() => onSelectPolitician(rep.bioguide_id)}
@@ -1251,7 +1251,7 @@ const SearchScreen = ({ onNav, onSelectPolitician, onSelectStateRep, userState }
             {results.map((p, i) => {
               const id = p.level === "state" ? `s-${p.people_id}` : `f-${p.bioguide_id}`;
               return (
-                <FadeIn key={id} delay={Math.min(i * 40, 400)}>
+                <FadeIn key={id} delay={Math.min(i * 55, 495)}>
                   <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }} onClick={() => handleClick(p)}>
                     <Avatar name={p.name} size={36} party={p.party} />
                     <div style={{ flex: 1 }}>
@@ -1372,29 +1372,37 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
           </div>
         </div>
 
-        {/* Score Cards */}
+        {/* Score Cards — cascade left-to-right so the eye reads the row as
+            a deliberate reveal instead of three values popping in together. */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-          <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.textMuted }}>
-              {data.promise_score ?? "—"}
+          <FadeIn delay={0}>
+            <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.textMuted }}>
+                {data.promise_score ?? "—"}
+              </div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.promiseScoreLabel}</div>
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.promiseScoreLabel}</div>
-          </div>
-          <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.green }}>
-              {v.yea_count}<span style={{ color: colors.textMuted, fontSize: 14 }}>/{v.total_tracked}</span>
+          </FadeIn>
+          <FadeIn delay={90}>
+            <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.green }}>
+                {v.yea_count}<span style={{ color: colors.textMuted, fontSize: 14 }}>/{v.total_tracked}</span>
+              </div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.yeaVotesLabel}</div>
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.yeaVotesLabel}</div>
-          </div>
-          <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.accent }}>
-              {fmt(f.total_raised)}
+          </FadeIn>
+          <FadeIn delay={180}>
+            <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.accent }}>
+                {fmt(f.total_raised)}
+              </div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.raisedLabel}</div>
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.raisedLabel}</div>
-          </div>
+          </FadeIn>
         </div>
 
-        {/* Navigation Tiles */}
+        {/* Navigation Tiles — cascade top-to-bottom starting after the score
+            row's cascade so the page reads as a two-stage reveal. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {[
             { icon: "dollar", label: COPY.profile.tiles.funding.label, sub: f.top_industries?.length ? `${COPY.profile.tiles.funding.topPrefix}${f.top_industries[0].industry}` : COPY.profile.tiles.funding.fallbackSub, screen: SCREENS.FUNDING },
@@ -1402,19 +1410,21 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
             { icon: "star", label: COPY.profile.tiles.stances.label, sub: COPY.profile.tiles.stances.sub, screen: SCREENS.PROMISE_SCORING },
             { icon: "clock", label: COPY.profile.tiles.timeline.label, sub: COPY.profile.tiles.timeline.sub, screen: SCREENS.TIMELINE },
             { icon: "phone", label: COPY.profile.tiles.contact.label, sub: p.phone || COPY.profile.tiles.contact.fallbackSub, screen: SCREENS.TAKE_ACTION },
-          ].map((item) => (
-            <div key={item.label} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, marginBottom: 0 }} onClick={() => onNav(item.screen)}>
-              <div style={{ width: 36, height: 36, borderRadius: 8, background: colors.accentDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Icon type={item.icon} size={16} color={colors.accent} />
+          ].map((item, i) => (
+            <FadeIn key={item.label} delay={240 + i * 110}>
+              <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, marginBottom: 0 }} onClick={() => onNav(item.screen)}>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: colors.accentDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Icon type={item.icon} size={16} color={colors.accent} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{item.label}</div>
+                  <div style={{ fontSize: 11, color: colors.textMuted }}>{item.sub}</div>
+                </div>
+                <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
+                  <Icon type="back" size={14} />
+                </span>
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{item.label}</div>
-                <div style={{ fontSize: 11, color: colors.textMuted }}>{item.sub}</div>
-              </div>
-              <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
-                <Icon type="back" size={14} />
-              </span>
-            </div>
+            </FadeIn>
           ))}
         </div>
       </div>
@@ -2050,7 +2060,7 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
           </div>
         )}
         {!loading && !error && events.map((ev, i) => (
-          <FadeIn key={ev.id} delay={Math.min(i * 50, 500)}>
+          <FadeIn key={ev.id} delay={Math.min(i * 70, 630)}>
             <div style={{ ...s.card, cursor: "pointer" }} onClick={() => onSelectEvent?.(ev)}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                 <div style={{ width: 44, minHeight: 44, borderRadius: 8, background: (typeColors[ev.type] || colors.accent) + "22", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: "4px 0" }}>
@@ -2248,7 +2258,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
           const bills = a.bills || [];
           const grouped = (a.groupSize || 1) > 1;
           return (
-            <FadeIn key={a.id} delay={Math.min(idx * 50, 500)}>
+            <FadeIn key={a.id} delay={Math.min(idx * 70, 630)}>
             <div
               style={{
                 ...s.card,
@@ -2515,7 +2525,7 @@ const StateRepsScreen = ({ onNav, userState, onSelectStateRep }) => {
   const other = reps.filter((r) => r.chamber !== "Senate" && r.chamber !== "House");
 
   const renderCard = (r, i) => (
-    <FadeIn key={r.people_id} delay={Math.min(i * 40, 400)}>
+    <FadeIn key={r.people_id} delay={Math.min(i * 55, 495)}>
       <div
         style={{ ...s.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8, cursor: "pointer" }}
         onClick={() => onSelectStateRep?.(r.people_id)}

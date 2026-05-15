@@ -15,6 +15,7 @@ from typing import Optional
 
 from api import legislators, openfec, congress_gov, whoboughtmyrep, events
 from api import guardian, news, ai_summary, stance_analysis, promises, legiscan, state_sites
+from api import ai_cache
 from api.alerts_router import router as alerts_router
 from api.auth import router as auth_router
 from api.upcoming_votes_router import router as upcoming_votes_router
@@ -198,7 +199,18 @@ async def get_rep_funding_lite(bioguide_id: str):
     """
     Lightweight funding summary for a single rep.
     Used by dashboard cards to lazy-load funding after the rep list renders.
+
+    Cached in ai_cache for 24h. Campaign filings update quarterly, so 24h is
+    well inside the data's natural freshness window. The empty-data result is
+    cached too so reps WBMR + FEC don't cover don't re-hit upstream on every
+    dashboard mount — a 5-rep fan-out used to issue 5–10 upstream calls each
+    time the user opened the app.
     """
+    cache_key = f"funding_lite:{bioguide_id}"
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     wbmr = await whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
     if not wbmr:
         # WBMR has no data - try FEC as fallback
@@ -206,7 +218,7 @@ async def get_rep_funding_lite(bioguide_id: str):
         if leg and leg.get("fec_ids"):
             fec_totals = await openfec.get_candidate_totals(leg["fec_ids"][0])
             if fec_totals:
-                return {
+                result = {
                     "bioguide_id": bioguide_id,
                     "total_raised": fec_totals.get("total_receipts", 0),
                     "pac_total": fec_totals.get("total_pac_contributions", 0),
@@ -214,10 +226,14 @@ async def get_rep_funding_lite(bioguide_id: str):
                     "source": "fec",
                     "has_data": True,
                 }
-        return {"bioguide_id": bioguide_id, "has_data": False, "source": "none"}
+                ai_cache.set(cache_key, result, ttl_hours=24)
+                return result
+        result = {"bioguide_id": bioguide_id, "has_data": False, "source": "none"}
+        ai_cache.set(cache_key, result, ttl_hours=24)
+        return result
 
     funding = whoboughtmyrep.normalize_rep_funding(wbmr)
-    return {
+    result = {
         "bioguide_id": bioguide_id,
         "total_raised": funding["total_raised"],
         "pac_total": funding["pac_total"],
@@ -225,6 +241,8 @@ async def get_rep_funding_lite(bioguide_id: str):
         "source": "wbmr",
         "has_data": True,
     }
+    ai_cache.set(cache_key, result, ttl_hours=24)
+    return result
 
 @app.get("/api/reps/search", tags=["representatives"])
 async def search_reps(q: str = Query(..., min_length=2)):
@@ -536,7 +554,20 @@ async def get_event_summary(
 
 @app.get("/api/profile/{bioguide_id}", tags=["composite"])
 async def get_full_profile(bioguide_id: str):
-    """Full politician profile combining all data sources."""
+    """
+    Full politician profile combining all data sources.
+
+    Cached in ai_cache for 6h. Composite endpoint fans out ~5 upstream calls
+    (Congress.gov bills + votes, OpenFEC totals + employers, WBMR) so cold
+    hits run 2-5s — every click on a rep card used to re-pay that cost.
+    6h TTL balances "recent votes appear within a browsing session" against
+    "browsing the same rep repeatedly is instant."
+    """
+    cache_key = f"profile:{bioguide_id}"
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     leg_task = legislators.get_by_bioguide(bioguide_id)
     sponsored_task = congress_gov.get_sponsored_bills(bioguide_id, limit=5)
     wbmr_task = whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
@@ -569,7 +600,7 @@ async def get_full_profile(bioguide_id: str):
     yea_count = sum(1 for v in votes if v.get("member_vote") == "Yea")
     nay_count = sum(1 for v in votes if v.get("member_vote") == "Nay")
 
-    return {
+    result = {
         "profile": leg,
         "funding": funding,
         "votes": {
@@ -587,6 +618,8 @@ async def get_full_profile(bioguide_id: str):
             "contact_form": leg.get("contact_form", ""),
         },
     }
+    ai_cache.set(cache_key, result, ttl_hours=6)
+    return result
 
 
 # ============================================================
