@@ -113,12 +113,19 @@ async def get_candidate_totals(
 
 
 async def _get_principal_committee_id(candidate_id: str, cycle: int) -> str:
-    """Resolve a candidate_id to their principal committee_id."""
-    cand_data = await _get(f"/candidate/{candidate_id}/", {"cycle": cycle})
-    results = cand_data.get("results", [])
+    """Resolve a candidate_id to their principal committee_id.
+
+    FEC moved principal_committees out of the /candidate/{id}/ payload — use
+    the dedicated /candidate/{id}/committees/ endpoint with designation=P.
+    The cycle parameter is accepted for backward compatibility with callers
+    but not used: a rep's principal committee spans many cycles and we always
+    want the active one (e.g. Murphy: FRIENDS OF CHRIS MURPHY / C00492645).
+    """
+    data = await _get(f"/candidate/{candidate_id}/committees/", {"designation": "P", "per_page": 1})
+    results = data.get("results", [])
     if not results:
         return ""
-    return results[0].get("principal_committees", [{}])[0].get("committee_id", "")
+    return results[0].get("committee_id", "")
 
 
 async def get_top_contributors(
@@ -170,9 +177,10 @@ async def get_top_employers(
             {"committee_id": committee_id, "cycle": cycle, "sort": "-total", "per_page": limit},
         )
         results = []
+        _NOISE = {"RETIRED", "SELF-EMPLOYED", "SELF EMPLOYED", "SELF", "N/A", "NONE", "NOT EMPLOYED", "NONE LISTED", "INFORMATION REQUESTED", "REQUESTED INFORMATION", "HOMEMAKER", "UNEMPLOYED"}
         for r in data.get("results", []):
             employer = (r.get("employer") or "").strip()
-            if not employer or employer.upper() in ("RETIRED", "SELF-EMPLOYED", "N/A", "NONE", "NOT EMPLOYED"):
+            if not employer or employer.upper() in _NOISE:
                 continue
             results.append({
                 "name": employer.title(),

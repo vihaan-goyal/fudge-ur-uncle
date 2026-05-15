@@ -192,6 +192,9 @@ export const api = {
     if (event.bills?.length) params.set("bills", event.bills.map((b) => b.bill).join(", "));
     return apiRequest(`/api/events/summary?${params}`);
   },
+
+  chatSend: ({ messages, context }) =>
+    apiRequest("/api/assistant/chat", { method: "POST", body: { messages, context: context || null } }),
 };
 
 // ---- Sample data fallback (used if backend is unreachable) ----

@@ -9,15 +9,18 @@ Docs: http://localhost:8000/docs
 """
 
 import asyncio
-from fastapi import FastAPI, Query, HTTPException
+import json
+from hashlib import sha1
+from fastapi import FastAPI, Query, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Optional
 
 from api import legislators, openfec, congress_gov, whoboughtmyrep, events
 from api import guardian, news, ai_summary, stance_analysis, promises, legiscan, state_sites
-from api import ai_cache
+from api import ai_cache, assistant_chat
 from api.alerts_router import router as alerts_router
-from api.auth import router as auth_router
+from api.auth import router as auth_router, get_current_user
 from api.upcoming_votes_router import router as upcoming_votes_router
 import config
 
@@ -552,6 +555,39 @@ async def get_event_summary(
 
 
 # ============================================================
+# ASSISTANT  -  /api/assistant
+# ============================================================
+
+class ChatBody(BaseModel):
+    messages: list[dict]
+    context: Optional[dict] = None
+
+
+@app.post("/api/assistant/chat", tags=["ai"])
+async def assistant_chat_endpoint(
+    body: ChatBody,
+    current_user: dict = Depends(get_current_user),
+):
+    """Civics learning assistant. Auth required so we can scope cache + (future) rate limit per user."""
+    if not body.messages:
+        raise HTTPException(status_code=400, detail="messages must be non-empty")
+    if len(body.messages) > 30:
+        raise HTTPException(status_code=400, detail="messages must be <= 30 turns")
+
+    payload = json.dumps(body.messages, sort_keys=True) + json.dumps(body.context or {}, sort_keys=True)
+    cache_key = f"chat:{current_user['id']}:{sha1(payload.encode()).hexdigest()}"
+
+    cached = ai_cache.get(cache_key)
+    if cached is not None:
+        return {"reply": cached.get("reply"), "cached": True}
+
+    reply = await assistant_chat.get_chat_response(body.messages, body.context)
+    if reply:
+        ai_cache.set(cache_key, {"reply": reply}, ttl_hours=24)
+    return {"reply": reply, "cached": False}
+
+
+# ============================================================
 # COMPOSITE  -  /api/profile
 # ============================================================
 
@@ -586,10 +622,21 @@ async def get_full_profile(bioguide_id: str):
     top_employers = []
     fec_ids = leg.get("fec_ids", [])
     if fec_ids:
-        fec_totals, top_employers = await asyncio.gather(
-            openfec.get_candidate_totals(fec_ids[0]),
-            openfec.get_top_employers(fec_ids[0]),
-        )
+        # Reps with prior House service have their old House FEC ID listed
+        # first (e.g. Murphy: H6CT05124 from 2006-12); get_candidate_totals
+        # filters by current_cycle and returns {} for it. Probe every fec_id
+        # in parallel, pick the first one with real receipts, then fetch
+        # employers for that winning ID.
+        all_totals = await asyncio.gather(*[openfec.get_candidate_totals(fid) for fid in fec_ids])
+        active_id = fec_ids[0]
+        for fid, totals in zip(fec_ids, all_totals):
+            if totals.get("total_receipts"):
+                fec_totals = totals
+                active_id = fid
+                break
+        else:
+            fec_totals = all_totals[0]
+        top_employers = await openfec.get_top_employers(active_id)
 
     funding = whoboughtmyrep.normalize_rep_funding(wbmr)
     funding["individual_total"] = fec_totals.get("total_individual_contributions", 0)

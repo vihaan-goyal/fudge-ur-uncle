@@ -74,6 +74,14 @@ if (typeof document !== "undefined" && !document.getElementById("fuu-anim-styles
       0%, 100% { opacity: 0.5; transform: scale(1); }
       50%      { opacity: 1;   transform: scale(1.4); }
     }
+    @keyframes fuu-slide-up {
+      from { transform: translateY(100%); }
+      to   { transform: translateY(0); }
+    }
+    @keyframes fuu-fade-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
     /* Global press feedback — fires on :active for any native button or
        role=button element that doesn't already drive its own JS-tracked
        transform. Elements that DO (ComingUpCard, RepCardShell,
@@ -174,6 +182,32 @@ const s = {
     height: 56, display: "flex", borderTop: `1px solid ${colors.border}`,
     background: colors.surface, position: "absolute", bottom: 0,
     left: 0, right: 0,
+  },
+  // Floating civics-helper pill. position: fixed (not absolute) because each
+  // screen owns its own `s.phone` wrapper — anchoring to one specific phone
+  // frame would mean injecting into every screen. Fixed pins to the viewport,
+  // which in PWA mode IS the phone screen, and in browser dev mode lives at
+  // the window corner (dev-only — real users only see PWA). The safe-area
+  // env() picks up iOS home-indicator height when installed.
+  assistantPill: {
+    position: "fixed",
+    right: 16,
+    bottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
+    height: 44,
+    padding: "0 18px",
+    borderRadius: 22,
+    background: colors.accent,
+    color: "#fff",
+    fontFamily: fontSans,
+    fontSize: 14,
+    fontWeight: 600,
+    border: "none",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    boxShadow: "0 6px 18px -10px rgba(231, 122, 27, 0.55), 0 1px 3px rgba(0, 0, 0, 0.08)",
+    zIndex: 50,
   },
   navItem: (active) => ({
     flex: 1, display: "flex", flexDirection: "column",
@@ -368,6 +402,191 @@ const FadeIn = ({ children, delay = 0, duration = 300, style }) => (
     {children}
   </div>
 );
+
+// Civics-helper chat bottom-sheet. Lives at App level so it persists across
+// screen swaps. position:fixed (matching the pill) — anchoring to the phone
+// frame would require injecting into every screen. State is ephemeral by
+// design: closing wipes the conversation so the next open is a clean slate.
+const AssistantSheet = ({ open, onClose, context }) => {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setMessages([]);
+      setInput("");
+      setSending(false);
+      setErrorMsg("");
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const submit = async (overrideText) => {
+    const text = (overrideText ?? input).trim();
+    if (!text || sending) return;
+    setErrorMsg("");
+    const userMsg = { role: "user", content: text };
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
+    setInput("");
+    setSending(true);
+    try {
+      const res = await api.chatSend({ messages: nextMessages, context });
+      if (!res?.reply) throw new Error("empty reply");
+      setMessages([...nextMessages, { role: "assistant", content: res.reply }]);
+    } catch {
+      setErrorMsg(COPY.assistant.error);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const chipText = (() => {
+    if (!context) return null;
+    const cc = COPY.assistant.contextChip;
+    const screen = context.screen;
+    if (screen === "profile" || screen === "state_profile") {
+      const t = cc[screen];
+      return typeof t === "function" ? t(context.rep_name) : t;
+    }
+    if (screen === "event" || context.event_id) return cc.event;
+    if (context.bill_number) return cc.bill;
+    if (screen === "learn_to_vote") {
+      return typeof cc.learn_to_vote === "function" ? cc.learn_to_vote(context.learn_to_vote_state) : cc.learn_to_vote;
+    }
+    if (screen === "dashboard") return cc.dashboard;
+    return null;
+  })();
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)",
+        zIndex: 60, animation: "fuu-fade-in 0.18s ease-out both",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label={COPY.assistant.title}
+        style={{
+          position: "fixed", left: 0, right: 0, bottom: 0,
+          maxHeight: "75%",
+          background: colors.surface,
+          borderRadius: "16px 16px 0 0",
+          display: "flex", flexDirection: "column",
+          fontFamily: fontSans,
+          animation: "fuu-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) both",
+          boxShadow: "0 -8px 24px -10px rgba(0, 0, 0, 0.18)",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px", borderBottom: `1px solid ${colors.border}` }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: colors.text }}>{COPY.assistant.title}</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{COPY.assistant.subtitle}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={COPY.assistant.close}
+            style={{ background: "none", border: "none", fontSize: 22, color: colors.textMuted, cursor: "pointer", padding: 4, lineHeight: 1 }}
+          >×</button>
+        </div>
+
+        {chipText && (
+          <div style={{ padding: "10px 16px 0" }}>
+            <span style={{ display: "inline-block", background: colors.accentDim, color: colors.accent, padding: "3px 9px", borderRadius: 11, fontSize: 11, fontWeight: 600 }}>{chipText}</span>
+          </div>
+        )}
+
+        {/* Message list */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+          {messages.length === 0 && !sending && !errorMsg && (
+            <div>
+              <div style={{ color: colors.textMuted, fontSize: 12, marginBottom: 10 }}>{COPY.assistant.emptyState}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {COPY.assistant.suggestions.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => submit(q)}
+                    style={{ textAlign: "left", padding: "9px 12px", background: colors.surfaceLight, border: `1px solid ${colors.border}`, borderRadius: 10, fontFamily: fontSans, fontSize: 12, color: colors.text, cursor: "pointer" }}
+                  >{q}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <FadeIn key={i} duration={240} delay={i === messages.length - 1 ? 60 : 0}
+              style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+              <div style={{
+                background: m.role === "user" ? colors.accent : colors.surfaceLight,
+                color: m.role === "user" ? "#fff" : colors.text,
+                padding: "8px 12px", borderRadius: 12,
+                maxWidth: "85%", fontSize: 13, lineHeight: 1.45,
+                whiteSpace: "pre-wrap",
+                boxShadow: m.role === "assistant" ? `inset 0 0 0 1px ${colors.border}` : "none",
+              }}>{m.content}</div>
+            </FadeIn>
+          ))}
+          {sending && (
+            <div style={{ alignSelf: "flex-start", color: colors.textMuted, fontSize: 12, padding: "4px 4px" }}>{COPY.assistant.sending}</div>
+          )}
+          {errorMsg && (
+            <FadeIn duration={240} style={{ display: "flex", justifyContent: "flex-start" }}>
+              <div style={{
+                background: colors.surfaceLight,
+                color: colors.red,
+                padding: "8px 12px", borderRadius: 12,
+                maxWidth: "85%", fontSize: 13, lineHeight: 1.45,
+                boxShadow: `inset 0 0 0 1px ${colors.redDim}`,
+              }}>{errorMsg}</div>
+            </FadeIn>
+          )}
+        </div>
+
+        {/* Input row + disclaimer */}
+        <div style={{ borderTop: `1px solid ${colors.border}`, background: colors.surface, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div style={{ display: "flex", gap: 8, padding: "10px 16px 8px" }}>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+              placeholder={COPY.assistant.placeholder}
+              disabled={sending}
+              style={{
+                flex: 1, padding: "10px 12px", borderRadius: 10,
+                border: `1px solid ${colors.border}`, fontFamily: fontSans,
+                fontSize: 13, color: colors.text, background: colors.bg,
+                outline: "none",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => submit()}
+              disabled={sending || !input.trim()}
+              style={{
+                padding: "0 16px", borderRadius: 10, border: "none",
+                background: sending || !input.trim() ? colors.borderLight : colors.accent,
+                color: "#fff", fontFamily: fontSans, fontWeight: 600, fontSize: 13,
+                cursor: sending || !input.trim() ? "default" : "pointer",
+              }}
+            >{COPY.assistant.send}</button>
+          </div>
+          <div style={{ padding: "0 16px 10px", fontSize: 10, color: colors.textMuted, textAlign: "center", lineHeight: 1.3 }}>
+            {COPY.assistant.disclaimer}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Placeholder layout that mirrors the profile screen's actual shape so the
 // loading state doesn't feel like a blank page. Used by both federal and state
@@ -3178,6 +3397,7 @@ export default function App() {
   const [selectedStatePeopleId, setSelectedStatePeopleId] = useState(null);
   const [stateRepData, setStateRepData] = useState(null);
   const [globalOffline, setGlobalOffline] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // Check backend health on load
   useEffect(() => {
@@ -3335,12 +3555,86 @@ export default function App() {
     [SCREENS.SETTINGS, "Settings"],
   ];
 
+  // Floating civics-helper pill — visible on every signed-in screen except
+  // splash / auth / onboarding (where the user has no learning context yet).
+  const PILL_HIDDEN_ON = new Set([
+    SCREENS.SPLASH,
+    SCREENS.LOGIN,
+    SCREENS.CREATE_ACCOUNT,
+    SCREENS.ISSUE_SELECT,
+  ]);
+  const showAssistantPill = !!currentUser && !PILL_HIDDEN_ON.has(currentScreen);
+  const assistantPillEl = showAssistantPill && !assistantOpen && (
+    <button
+      type="button"
+      style={s.assistantPill}
+      onClick={() => setAssistantOpen(true)}
+      aria-label={COPY.assistant.title}
+    >
+      <span aria-hidden="true">✨</span>
+      {COPY.assistant.pillLabel}
+    </button>
+  );
+  // Map the current screen + selected entities into the opaque `context` dict
+  // the backend assistant module reads (see backend/api/assistant_chat.py).
+  // Sub-screens of a profile (FUNDING/VOTING_HISTORY/TIMELINE/etc.) inherit
+  // their parent's rep context so "what does this rep do on healthcare?" works
+  // from anywhere inside the profile cluster, not just the landing tile.
+  const FEDERAL_PROFILE_SCREENS = new Set([
+    SCREENS.POLITICIAN_PROFILE, SCREENS.FUNDING, SCREENS.VOTING_HISTORY,
+    SCREENS.PROMISE_SCORING, SCREENS.TIMELINE, SCREENS.TAKE_ACTION,
+  ]);
+  const STATE_PROFILE_SCREENS = new Set([
+    SCREENS.STATE_REP_PROFILE, SCREENS.STATE_REP_VOTING, SCREENS.STATE_REP_STANCES,
+    SCREENS.STATE_REP_PROMISES, SCREENS.STATE_REP_ALERTS,
+  ]);
+  let assistantContext;
+  if (FEDERAL_PROFILE_SCREENS.has(currentScreen) && selectedBioguideId) {
+    assistantContext = {
+      screen: "profile",
+      rep_id: selectedBioguideId,
+      rep_name: profileData?.profile?.name || null,
+    };
+  } else if (STATE_PROFILE_SCREENS.has(currentScreen) && selectedStatePeopleId) {
+    assistantContext = {
+      screen: "state_profile",
+      state_rep_id: selectedStatePeopleId,
+      rep_name: stateRepData?.person?.name || stateRepData?.name || null,
+    };
+  } else if (currentScreen === SCREENS.EVENT_DETAIL && selectedEvent) {
+    assistantContext = {
+      screen: "event",
+      event_title: selectedEvent.title || null,
+    };
+  } else if (currentScreen === SCREENS.LEARN_TO_VOTE) {
+    assistantContext = {
+      screen: "learn_to_vote",
+      learn_to_vote_state: userState || currentUser?.state || null,
+    };
+  } else {
+    assistantContext = { screen: currentScreen };
+  }
+
+  const assistantSheetEl = (
+    <AssistantSheet
+      open={assistantOpen}
+      onClose={() => setAssistantOpen(false)}
+      context={assistantContext}
+    />
+  );
+
   // In PWA mode the app fills the viewport directly — no dev header, no
   // screen-selector pills, no centered phone-frame container. The screen
   // already styles itself for full-bleed via s.phone (which switches to
   // 100vw/100vh in PWA mode).
   if (_IS_PWA_AT_BOOT) {
-    return renderScreen();
+    return (
+      <>
+        {renderScreen()}
+        {assistantPillEl}
+        {assistantSheetEl}
+      </>
+    );
   }
 
   return (
@@ -3385,6 +3679,8 @@ export default function App() {
       <div style={{ display: "flex", justifyContent: "center", padding: "10px 20px 40px" }}>
         {renderScreen()}
       </div>
+      {assistantPillEl}
+      {assistantSheetEl}
     </div>
   );
 }

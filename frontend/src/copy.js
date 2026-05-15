@@ -167,6 +167,31 @@ export const COPY = {
     elections: "Elections",
     foreign_policy: "Foreign policy",
   },
+  assistant: {
+    pillLabel: "Ask",
+    title: "Civics helper",
+    subtitle: "Ask anything about how this works",
+    placeholder: "Type your question…",
+    sending: "Thinking…",
+    send: "Send",
+    close: "Close",
+    error: "Couldn't reach the helper. Try again in a moment.",
+    emptyState: "Ask me about a bill, your reps, or how Congress works.",
+    suggestions: [
+      "How does a bill become law?",
+      "What does my rep actually do?",
+      "Why do donations matter?",
+    ],
+    contextChip: {
+      profile: (name) => (name ? `Asking about ${name}` : "Asking about this rep"),
+      state_profile: (name) => (name ? `Asking about ${name}` : "Asking about this rep"),
+      event: "Asking about this hearing",
+      bill: "Asking about this bill",
+      learn_to_vote: (state) => (state ? `Voting in ${state}` : "Asking about voting"),
+      dashboard: "On your dashboard",
+    },
+    disclaimer: "AI-generated — verify important details on the official source.",
+  },
 };
 
 export const friendlyCategory = (raw) => {
