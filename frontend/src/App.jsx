@@ -640,12 +640,12 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
   // ("Healthcare") that don't match a category key — they came from an
   // earlier storage format and would render as a chip nobody can toggle.
   const stored = (currentUser?.issues || []).filter((k) => COPY.categories[k]).slice(0, 5);
-  const initial = stored.length ? stored : ["healthcare", "environment"];
-  const [selected, setSelected] = useState(initial);
+  const [selected, setSelected] = useState(stored);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   const atMax = selected.length >= 5;
+  const atMin = selected.length === 0;
   const toggle = (key) => {
     if (selected.includes(key)) setSelected(selected.filter((i) => i !== key));
     else if (!atMax) setSelected([...selected, key]);
@@ -683,8 +683,12 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
         {error && (
           <div style={{ fontSize: 11, color: colors.red, fontFamily: font, marginBottom: 8 }}>{error}</div>
         )}
-        <button style={{ ...s.btn("primary"), opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={done}>
-          {submitting ? "Saving..." : "Done - Show Me My Reps"}
+        <button
+          style={{ ...s.btn("primary"), opacity: submitting || atMin ? 0.6 : 1 }}
+          disabled={submitting || atMin}
+          onClick={done}
+        >
+          {submitting ? "Saving..." : atMin ? "Pick at least one to continue" : "Done - Show Me My Reps"}
         </button>
       </div>
     </div>
@@ -887,7 +891,7 @@ const SkeletonBar = ({ width = "60%", height = 9, style }) => (
   }} />
 );
 
-const ComingUpRow = ({ row, index, isFirst }) => {
+const ComingUpRow = ({ row, index, isFirst, onClick }) => {
   const days = row.days_until;
   const imminent = typeof days === "number" && days <= 3;
   const label = friendlyCategory(row.category);
@@ -896,12 +900,21 @@ const ComingUpRow = ({ row, index, isFirst }) => {
   if (row.chamber) subParts.push(`${row.chamber} floor`);
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
       style={{
         position: "relative",
+        display: "block",
+        width: "100%",
+        textAlign: "left",
+        cursor: "pointer",
         padding: "13px 16px",
+        border: "none",
         borderTop: isFirst ? "none" : `1px solid ${colors.border}`,
         background: imminent && isFirst ? colors.accentDim : "transparent",
+        color: "inherit",
+        fontFamily: "inherit",
         opacity: 0,
         animation: "fuu-fade-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) both",
         animationDelay: `${80 + index * 95}ms`,
@@ -947,7 +960,7 @@ const ComingUpRow = ({ row, index, isFirst }) => {
           {subParts.join(" · ")}
         </div>
       )}
-    </div>
+    </button>
   );
 };
 
@@ -989,14 +1002,6 @@ const ComingUpEmpty = () => (
 );
 
 const ComingUpCard = ({ upcoming, loading, onOpen }) => {
-  const [pressed, setPressed] = useState(false);
-  const press = {
-    onPointerDown: () => setPressed(true),
-    onPointerUp: () => setPressed(false),
-    onPointerLeave: () => setPressed(false),
-    onPointerCancel: () => setPressed(false),
-  };
-
   return (
     <div style={s.section}>
       <div style={{ ...s.sectionTitleFriendly, marginBottom: 4 }}>
@@ -1012,38 +1017,46 @@ const ComingUpCard = ({ upcoming, loading, onOpen }) => {
         {COPY.dashboard.comingUpSubtitle}
       </div>
 
-      <button
-        type="button"
-        onClick={onOpen}
-        {...press}
+      <div
         style={{
-          width: "100%", textAlign: "left", cursor: "pointer",
           background: colors.surface,
           border: `1px solid ${colors.border}`,
           borderRadius: 16,
-          padding: 0, margin: 0,
           color: colors.text, fontFamily: fontSans,
           overflow: "hidden",
           // Accent-tinted, low-contrast diffusion shadow — lifts the strip
-          // off the cream bg without the AI "neon glow" tell.
-          boxShadow: pressed
-            ? "0 1px 0 rgba(231,122,27,0.05)"
-            : "0 6px 18px -10px rgba(231,122,27,0.13), 0 1px 0 rgba(231,122,27,0.05)",
-          transform: pressed ? "translateY(1px)" : "translateY(0)",
-          transition:
-            "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+          // off the cream bg without the AI "neon glow" tell. Per-row press
+          // feedback comes from the global button:active rule in fuu-anim-styles.
+          boxShadow:
+            "0 6px 18px -10px rgba(231,122,27,0.13), 0 1px 0 rgba(231,122,27,0.05)",
         }}
       >
         {loading ? (
           <ComingUpSkeleton />
         ) : upcoming.length === 0 ? (
-          <ComingUpEmpty />
+          <button
+            type="button"
+            onClick={onOpen}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", border: "none", padding: 0, margin: 0,
+              color: "inherit", fontFamily: "inherit", cursor: "pointer",
+            }}
+          >
+            <ComingUpEmpty />
+          </button>
         ) : (
           upcoming.map((u, i) => (
-            <ComingUpRow key={u.id} row={u} index={i} isFirst={i === 0} />
+            <ComingUpRow
+              key={u.id}
+              row={u}
+              index={i}
+              isFirst={i === 0}
+              onClick={onOpen}
+            />
           ))
         )}
-      </button>
+      </div>
     </div>
   );
 };
@@ -1412,7 +1425,22 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
             { icon: "phone", label: COPY.profile.tiles.contact.label, sub: p.phone || COPY.profile.tiles.contact.fallbackSub, screen: SCREENS.TAKE_ACTION },
           ].map((item, i) => (
             <FadeIn key={item.label} delay={240 + i * 110}>
-              <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, marginBottom: 0 }} onClick={() => onNav(item.screen)}>
+              <button
+                type="button"
+                onClick={() => onNav(item.screen)}
+                style={{
+                  ...s.card,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 0,
+                  width: "100%",
+                  textAlign: "left",
+                  font: "inherit",
+                  color: "inherit",
+                }}
+              >
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: colors.accentDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <Icon type={item.icon} size={16} color={colors.accent} />
                 </div>
@@ -1423,7 +1451,7 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
                 <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
                   <Icon type="back" size={14} />
                 </span>
-              </div>
+              </button>
             </FadeIn>
           ))}
         </div>
@@ -2061,7 +2089,18 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
         )}
         {!loading && !error && events.map((ev, i) => (
           <FadeIn key={ev.id} delay={Math.min(i * 70, 630)}>
-            <div style={{ ...s.card, cursor: "pointer" }} onClick={() => onSelectEvent?.(ev)}>
+            <button
+              type="button"
+              onClick={() => onSelectEvent?.(ev)}
+              style={{
+                ...s.card,
+                cursor: "pointer",
+                width: "100%",
+                textAlign: "left",
+                font: "inherit",
+                color: "inherit",
+              }}
+            >
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                 <div style={{ width: 44, minHeight: 44, borderRadius: 8, background: (typeColors[ev.type] || colors.accent) + "22", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: "4px 0" }}>
                   <div style={{ fontSize: 14, fontWeight: 800, fontFamily: font, color: typeColors[ev.type] || colors.accent }}>{(ev.date?.split(" ")?.[1] ?? "").replace(",", "")}</div>
@@ -2077,7 +2116,7 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
                   <div style={{ fontSize: 11, color: colors.textMuted }}>{ev.time} · {ev.location}</div>
                 </div>
               </div>
-            </div>
+            </button>
           </FadeIn>
         ))}
       </div>

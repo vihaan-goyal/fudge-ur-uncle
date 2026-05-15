@@ -159,6 +159,9 @@ def _health_payload():
             "whoboughtmyrep": bool(config.WHOBOUGHTMYREP_API_KEY),
             "legiscan": bool(config.LEGISCAN_API_KEY),
             "ftm": bool(config.FTM_API_KEY),
+            "openai": bool(config.OPENAI_API_KEY),
+            "newsapi": bool(config.NEWSAPI_KEY),
+            "guardian": bool(config.GUARDIAN_API_KEY),
         },
     }
 

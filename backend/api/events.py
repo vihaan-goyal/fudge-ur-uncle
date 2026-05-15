@@ -35,13 +35,13 @@ SAMPLE_EVENTS = [
 ]
 
 
-def _normalize_date(iso_date) -> str:
-    """Convert ISO date to display format. Returns 'TBD' on any failure."""
+def _normalize_date(iso_date):
+    """Convert ISO date to (display, parsed_dt). parsed_dt is None on failure."""
     try:
         dt = datetime.strptime(str(iso_date).split("T")[0], "%Y-%m-%d")
-        return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+        return f"{dt.strftime('%b')} {dt.day}, {dt.year}", dt
     except (ValueError, TypeError, AttributeError):
-        return "TBD"
+        return "TBD", None
 
 
 def _clean_title(raw: str) -> str:
@@ -139,10 +139,13 @@ def _normalize_detail(raw: dict, idx: int) -> dict:
         if congress and chamber and event_id else ""
     )
 
+    date_display, date_dt = _normalize_date(meeting.get("date") or meeting.get("meetingDate", ""))
+
     return {
         "id": idx + 1,
         "title": _clean_title(meeting.get("title", "")),
-        "date": _normalize_date(meeting.get("date") or meeting.get("meetingDate", "")),
+        "date": date_display,
+        "_date_dt": date_dt,
         "time": meeting.get("time", "TBD"),
         "location": f"{building} {room}".strip() or "U.S. Capitol",
         "type": "hearing",
@@ -195,6 +198,15 @@ async def fetch_events(limit: int = 20) -> list[dict]:
         if not events:
             print("[events] All detail fetches failed, using sample data")
             return SAMPLE_EVENTS[:limit]
+
+        # Drop past meetings; the header sells these as "upcoming". Items
+        # without a parseable date stay (no way to confidently exclude),
+        # then sort soonest-first.
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        events = [e for e in events if e.get("_date_dt") is None or e["_date_dt"] >= today]
+        events.sort(key=lambda e: e.get("_date_dt") or datetime.max)
+        for e in events:
+            e.pop("_date_dt", None)
 
         _cache = {"events": events, "fetched_at": datetime.now()}
         print(f"[events] Fetched {len(events)} committee meeting details")
