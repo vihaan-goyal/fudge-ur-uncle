@@ -385,7 +385,7 @@ const NavBar = ({ active, onNav }) => {
 const Loading = ({ label = "Loading..." }) => (
   <div style={{ padding: 40, textAlign: "center" }}>
     <div style={{ width: 24, height: 24, border: `2px solid ${colors.border}`, borderTopColor: colors.accent, borderRadius: "50%", margin: "0 auto 12px", animation: "spin 0.8s linear infinite" }} />
-    <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{label}</div>
+    <div style={{ fontSize: 11, color: colors.textMuted }}>{label}</div>
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
   </div>
 );
@@ -726,7 +726,7 @@ const SplashScreen = ({ onNav, offline }) => (
         <br />
         <span style={{ color: colors.text }}>UR UNCLE</span>
       </div>
-      <p style={{ color: colors.textMuted, fontSize: 13, lineHeight: 1.5, marginBottom: 40, fontFamily: font }}>
+      <p style={{ color: colors.textMuted, fontSize: 13, lineHeight: 1.5, marginBottom: 40 }}>
         Hold your politicians accountable.<br />Follow the money. Take action.
       </p>
       <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -734,7 +734,7 @@ const SplashScreen = ({ onNav, offline }) => (
         <button style={s.btn("outline")} onClick={() => onNav(SCREENS.LOGIN)}>Log In</button>
       </div>
     </div>
-    <div style={{ padding: "20px 40px 40px", textAlign: "center", fontSize: 10, color: colors.textMuted, fontFamily: font }}>
+    <div style={{ padding: "20px 40px 40px", textAlign: "center", fontSize: 10, color: colors.textMuted }}>
       Democracy requires participation.
     </div>
   </div>
@@ -776,30 +776,30 @@ const CreateAccountScreen = ({ onNav, onSignedIn, offline }) => {
         <p style={{ color: colors.textMuted, fontSize: 12, marginBottom: 20, marginTop: 0 }}>Your data stays yours. We never sell it.</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Full Name</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Full Name</label>
             <input style={s.input} placeholder="Jane Doe" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
             <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>State (2-letter)</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>State (2-letter)</label>
             <input style={s.input} placeholder="CT" value={state} onChange={(e) => setStateVal(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} />
-            <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 4, fontFamily: font }}>
+            <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 4 }}>
               We use this to find your representatives
             </div>
           </div>
           <div style={s.divider} />
-          <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
+          <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
           <input style={s.input} type="password" autoComplete="new-password" placeholder="Min 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
           {error && (
-            <div style={{ fontSize: 11, color: colors.red, fontFamily: font }}>{error}</div>
+            <div style={{ fontSize: 11, color: colors.red }}>{error}</div>
           )}
           <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
             {submitting ? "Creating..." : "Continue"}
           </button>
-          <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted, fontFamily: font }}>
+          <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted }}>
             Already have an account?{" "}
             <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.LOGIN)}>Log in</span>
           </div>
@@ -840,20 +840,20 @@ const LoginScreen = ({ onNav, onSignedIn, offline, onEnterGuest }) => {
         <h2 style={{ ...s.headerTitle, marginBottom: 20 }}>Welcome Back</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
             <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
             <input style={s.input} type="password" autoComplete="current-password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
           </div>
           {error && (
-            <div style={{ fontSize: 11, color: colors.red, fontFamily: font }}>{error}</div>
+            <div style={{ fontSize: 11, color: colors.red }}>{error}</div>
           )}
           <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
             {submitting ? "Logging in..." : "Log In"}
           </button>
-          <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted, fontFamily: font }}>
+          <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted }}>
             New here?{" "}
             <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Create an account</span>
           </div>
@@ -915,11 +915,11 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 12, color: atMax ? colors.accent : colors.textMuted, fontFamily: font, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: atMax ? colors.accent : colors.textMuted, marginBottom: 12 }}>
           {selected.length}/5 selected{atMax ? " · deselect one to choose another" : ""}
         </div>
         {error && (
-          <div style={{ fontSize: 11, color: colors.red, fontFamily: font, marginBottom: 8 }}>{error}</div>
+          <div style={{ fontSize: 11, color: colors.red, marginBottom: 8 }}>{error}</div>
         )}
         <button
           style={{ ...s.btn("primary"), opacity: submitting || atMin ? 0.6 : 1 }}
@@ -1506,14 +1506,14 @@ const SearchScreen = ({ onNav, onSelectPolitician, onSelectStateRep, userState }
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <input style={{ ...s.input, marginBottom: 14 }} placeholder="Search federal + state by name..." value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
         {query.length < 2 && (
-          <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>
+          <p style={{ fontSize: 11, color: colors.textMuted }}>
             Type at least 2 characters to search.
             {userState && <> State results limited to {userState}.</>}
           </p>
         )}
         {query.length >= 2 && loading && <Loading label="Searching..." />}
         {query.length >= 2 && !loading && results.length === 0 && (
-          <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>No results found.</p>
+          <p style={{ fontSize: 11, color: colors.textMuted }}>No results found.</p>
         )}
         {results.length > 0 && (
           <>
@@ -1732,7 +1732,7 @@ const FundingScreen = ({ onNav, profileData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 2 }}>Funding</h2>
-        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, fontFamily: font }}>Campaign finance from FEC filings</p>
+        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0 }}>Campaign finance from FEC filings</p>
 
         <div style={{ ...s.card, textAlign: "center", marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Total raised</div>
@@ -1783,7 +1783,7 @@ const FundingScreen = ({ onNav, profileData }) => {
           </div>
         )}
 
-        <p style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>Source: OpenFEC (FEC filings). Top donors aggregated by employer using same methodology as OpenSecrets.</p>
+        <p style={{ fontSize: 10, color: colors.textMuted }}>Source: OpenFEC (FEC filings). Top donors aggregated by employer using same methodology as OpenSecrets.</p>
       </div>
       <NavBar active={SCREENS.SEARCH} onNav={onNav} />
     </div>
@@ -1814,7 +1814,7 @@ const VotingHistoryScreen = ({ onNav, profileData }) => {
           </div>
         )}
         {filtered.length === 0 && (
-          <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{COPY.profile.votingHistory.emptyFilter}</p>
+          <p style={{ fontSize: 11, color: colors.textMuted }}>{COPY.profile.votingHistory.emptyFilter}</p>
         )}
         {filtered.map((v, i) => (
           <div key={i} style={{ display: "flex", gap: 12, marginBottom: 12, position: "relative", paddingLeft: 16 }}>
@@ -1826,7 +1826,7 @@ const VotingHistoryScreen = ({ onNav, profileData }) => {
                 <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>{v.date}</span>
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{v.title}</div>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{v.bill} · {friendlyCategoryInline(v.category) || "general"}</div>
+              <div style={{ fontSize: 11, color: colors.textMuted }}>{v.bill} · {friendlyCategoryInline(v.category) || "general"}</div>
             </div>
           </div>
         ))}
@@ -1932,7 +1932,7 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.profile.promiseScoring.title}</h2>
-        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 14 }}>
           {COPY.profile.promiseScoring.subtitle}
         </div>
 
@@ -1953,7 +1953,7 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
               <>
                 {promises.map(renderPromiseCard)}
                 {promiseSourceUrl && (
-                  <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginBottom: 16, lineHeight: 1.5, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ fontSize: 10, color: colors.textMuted, marginBottom: 16, lineHeight: 1.5, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                     {PROMISE_RUNG_STYLE[promiseSourceRung] && (
                       <span style={{
                         fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.5,
@@ -1986,7 +1986,7 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
           <>
             <div style={s.sectionTitle}>{COPY.profile.promiseScoring.keyPositions(stances.length)}</div>
             {stances.map(renderStanceCard)}
-            <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 8, lineHeight: 1.5 }}>
               {COPY.profile.promiseScoring.scoresNote}
             </div>
           </>
@@ -2058,7 +2058,7 @@ const TakeActionScreen = ({ onNav, profileData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.takeAction.title}</h2>
-        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, marginBottom: 14, fontFamily: font }}>{COPY.takeAction.subtitle}</p>
+        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, marginBottom: 14 }}>{COPY.takeAction.subtitle}</p>
 
         {[
           { icon: "phone", label: COPY.takeAction.callLabel, sub: contact.phone || COPY.takeAction.callFallback, color: colors.green, action: contact.phone ? `tel:${contact.phone}` : null },
@@ -2095,7 +2095,7 @@ const TakeActionScreen = ({ onNav, profileData }) => {
         <div style={s.section}>
           <div style={s.sectionTitle}>{COPY.takeAction.scriptTitle}</div>
           <div style={{ ...s.card, background: colors.accentDim, borderColor: colors.accent + "33" }}>
-            <div style={{ fontSize: 12, lineHeight: 1.6, fontFamily: font }}>
+            <div style={{ fontSize: 12, lineHeight: 1.6 }}>
               {COPY.takeAction.scriptBody(p.name)}
             </div>
           </div>
@@ -2230,7 +2230,7 @@ const EventDetailScreen = ({ onNav, event }) => {
         </div>
 
         <div style={{ ...s.card, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.scheduleLabel}</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8 }}>{COPY.events.scheduleLabel}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 11, color: colors.textMuted, width: 48, flexShrink: 0 }}>{COPY.events.scheduleDate}</span>
@@ -2249,7 +2249,7 @@ const EventDetailScreen = ({ onNav, event }) => {
 
         {event.committees?.length > 0 && (
           <div style={{ ...s.card, marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8 }}>
               {COPY.events.committeesLabel(event.committees.length)}
             </div>
             {event.committees.map((name, i) => (
@@ -2260,7 +2260,7 @@ const EventDetailScreen = ({ onNav, event }) => {
 
         {event.witnesses?.length > 0 && (
           <div style={{ ...s.card, marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.witnessesLabel}</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8 }}>{COPY.events.witnessesLabel}</div>
             {event.witnesses.map((w, i) => (
               <div key={i} style={{ marginBottom: i < event.witnesses.length - 1 ? 8 : 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
@@ -2273,7 +2273,7 @@ const EventDetailScreen = ({ onNav, event }) => {
         {/* Bills being considered */}
         {event.bills?.length > 0 && (
           <div style={{ ...s.card, marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.legislationLabel}</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8 }}>{COPY.events.legislationLabel}</div>
             {event.bills.map((b, i) => (
               <a key={i} href={b.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block", marginBottom: i < event.bills.length - 1 ? 10 : 0 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: colors.accent, fontFamily: font, marginBottom: 2 }}>{b.bill}</div>
@@ -2285,7 +2285,7 @@ const EventDetailScreen = ({ onNav, event }) => {
 
         {/* Related news article */}
         <div style={{ ...s.card, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8, fontFamily: font }}>{COPY.events.newsLabel}</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8 }}>{COPY.events.newsLabel}</div>
           {articleLoading && <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.newsLoading}</div>}
           {!articleLoading && !article && (
             <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.events.newsEmpty}</div>
@@ -2442,7 +2442,7 @@ const LearnToVoteScreen = ({ onNav, userState }) => {
                   </div>
                 </a>
               ))}
-              <p style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8 }}>
+              <p style={{ fontSize: 10, color: colors.textMuted, marginTop: 8 }}>
                 {COPY.learnToVote.sourceNote}
               </p>
             </>
@@ -2688,7 +2688,7 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
           {currentUser?.is_guest ? (
             <div style={s.card}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>Browsing as guest</div>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginTop: 2, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2, lineHeight: 1.4 }}>
                 Your state + issues are saved on this device only. Sign up to chat with Mamu and persist your preferences.
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -2700,7 +2700,7 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
           ) : currentUser ? (
             <div style={s.card}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{currentUser.name}</div>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginTop: 2 }}>{currentUser.email}</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{currentUser.email}</div>
               <button style={{ ...s.btn("outline"), marginTop: 12 }} onClick={onSignOut}>Sign Out</button>
               <button
                 style={{ ...s.btn("outline"), marginTop: 8, borderColor: colors.red, color: colors.red }}
@@ -2723,7 +2723,7 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
         <div style={s.section}>
           <div style={s.sectionTitle}>Location</div>
           <div style={s.card}>
-            <label style={{ fontSize: 11, fontFamily: font, color: colors.textMuted, display: "block", marginBottom: 4 }}>Your State (2-letter)</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Your State (2-letter)</label>
             <div style={{ display: "flex", gap: 8 }}>
               <input style={{ ...s.input, flex: 1 }} value={editState} onChange={(e) => { setEditState(e.target.value.toUpperCase().slice(0, 2)); setSaveStatus(null); }} maxLength={2} />
               <button style={{ ...s.btn("primary"), width: "auto", padding: "10px 16px", opacity: saveStatus?.saving ? 0.6 : 1 }} disabled={saveStatus?.saving} onClick={save}>
@@ -2731,7 +2731,7 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
               </button>
             </div>
             {saveStatus && !saveStatus.saving && (
-              <div style={{ fontSize: 11, marginTop: 6, fontFamily: font, color: saveStatus.ok ? colors.green : colors.red }}>
+              <div style={{ fontSize: 11, marginTop: 6, color: saveStatus.ok ? colors.green : colors.red }}>
                 {saveStatus.msg}
               </div>
             )}
@@ -2751,11 +2751,11 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: 11, color: atMaxIssues ? colors.accent : colors.textMuted, fontFamily: font, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: atMaxIssues ? colors.accent : colors.textMuted, marginBottom: 10 }}>
               {COPY.settings.issuesCounter(selectedIssues.length, ISSUES_MAX)}
             </div>
             {issuesStatus && !issuesStatus.saving && (
-              <div style={{ fontSize: 11, marginBottom: 8, fontFamily: font, color: issuesStatus.ok ? colors.green : colors.red }}>
+              <div style={{ fontSize: 11, marginBottom: 8, color: issuesStatus.ok ? colors.green : colors.red }}>
                 {issuesStatus.msg}
               </div>
             )}
@@ -3061,7 +3061,7 @@ const StateRepVotingScreen = ({ onNav, peopleId, stateRepData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.stateProfile.voting.title}</h2>
-        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 12 }}>
           {COPY.stateProfile.voting.subtitle}
         </div>
 
@@ -3095,7 +3095,7 @@ const StateRepVotingScreen = ({ onNav, peopleId, stateRepData }) => {
                 <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>{v.date}</span>
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{v.title}</div>
-              {v.category && <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{friendlyCategoryInline(v.category)}</div>}
+              {v.category && <div style={{ fontSize: 11, color: colors.textMuted }}>{friendlyCategoryInline(v.category)}</div>}
             </div>
           </div>
         ))}
@@ -3145,7 +3145,7 @@ const StateRepStancesScreen = ({ onNav, peopleId, stateRepData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.stateProfile.stances.title}</h2>
-        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 14 }}>
           {COPY.stateProfile.stances.subtitle}
         </div>
 
@@ -3162,7 +3162,7 @@ const StateRepStancesScreen = ({ onNav, peopleId, stateRepData }) => {
           <>
             <div style={s.sectionTitle}>{COPY.stateProfile.stances.keyPositions(stances.length)}</div>
             {stances.map(renderStanceCard)}
-            <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 8, lineHeight: 1.5 }}>
               {COPY.stateProfile.stances.scoresNote}
             </div>
           </>
@@ -3230,7 +3230,7 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.stateProfile.promises.title}</h2>
-        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 14 }}>
           {COPY.stateProfile.promises.subtitle}
         </div>
 
@@ -3255,7 +3255,7 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
           <>
             {promises.map(renderPromiseCard)}
             {sourceUrl && (
-              <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 8, lineHeight: 1.5, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                 {sourceChip && (
                   <span style={{
                     fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: 0.5,
@@ -3320,7 +3320,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.alerts.title}</h2>
-        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 14 }}>
           {COPY.alerts.stateSubtitle}
         </div>
 
@@ -3425,7 +3425,7 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
         })}
 
         {isReal && alerts && alerts.length > 0 && (
-          <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 8, lineHeight: 1.5 }}>
             {COPY.alerts.stateFooterNote}
           </div>
         )}
