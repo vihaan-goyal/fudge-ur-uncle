@@ -6,6 +6,27 @@ from api import ai_cache
 
 _MAX_CONTEXT_CHARS = 800
 
+# Mamu uses these blurbs to frame answers when the user isn't a voter (yet).
+# Keep terse — they're inlined in the system message, not shown to the user.
+_ELIGIBILITY_NOTES = {
+    "citizen": "User is a U.S. citizen with full voting rights.",
+    "naturalizing": (
+        "User is in the naturalization process and cannot vote yet. Frame voting "
+        "answers around what they CAN do now (call reps as a resident, attend "
+        "hearings, study the civics test) and what unlocks once they naturalize."
+    ),
+    "green_card": (
+        "User is a permanent resident (green card) and cannot vote in federal or "
+        "state elections. Frame answers around constituent engagement available to "
+        "residents (calling reps, town halls, public comment) and the path to "
+        "citizenship. A few cities allow non-citizen voting in local races."
+    ),
+    "not_sure": (
+        "User is unsure of their voting eligibility. Gently surface USCIS "
+        "resources before assuming they can register."
+    ),
+}
+
 
 SYSTEM_PROMPT = (
     "You are a friendly civics tutor inside Fudge Ur Uncle, an app that helps new "
@@ -95,6 +116,12 @@ async def _build_context_block(context: dict | None) -> str:
     learn_state = context.get("learn_to_vote_state")
     if learn_state:
         parts.append(f"User is learning how to vote in {learn_state}.")
+
+    eligibility = context.get("eligibility")
+    if eligibility:
+        eligibility_text = _ELIGIBILITY_NOTES.get(eligibility)
+        if eligibility_text:
+            parts.append(eligibility_text)
 
     screen = context.get("screen")
     if screen:

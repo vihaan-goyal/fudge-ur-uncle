@@ -12,6 +12,7 @@ const SCREENS = {
   SPLASH: "splash",
   CREATE_ACCOUNT: "create_account",
   LOGIN: "login",
+  ELIGIBILITY: "eligibility",
   ISSUE_SELECT: "issue_select",
   DASHBOARD: "dashboard",
   SEARCH: "search",
@@ -941,7 +942,7 @@ const CreateAccountScreen = ({ onNav, onSignedIn, offline }) => {
       const res = await api.signup({ email: email.trim(), password, name: name.trim(), state });
       auth.setSession(res.token, res.user);
       onSignedIn(res.user);
-      onNav(SCREENS.ISSUE_SELECT);
+      onNav(SCREENS.ELIGIBILITY);
     } catch (e) {
       setError(e.detail || e.message || "Signup failed");
     } finally {
@@ -1109,6 +1110,83 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
           onClick={done}
         >
           {submitting ? COPY.onboarding.saveBtnBusy : atMin ? COPY.onboarding.saveBtnAtMin : COPY.onboarding.saveBtnIdle}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// 4b. ELIGIBILITY — sits between Create Account and Issue Select. Routes
+// naturalizing / green-card / not-sure users into a learning track (the
+// Learn-to-Vote screen branches on the same key) instead of dead-ending
+// them at "register to vote" content that doesn't apply yet. Local-only
+// storage on currentUser.eligibility — no backend migration in this pass.
+const EligibilityScreen = ({ onNav, offline, onSelect }) => {
+  const [picked, setPicked] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const keys = ["citizen", "naturalizing", "green_card", "not_sure"];
+  const opts = COPY.eligibility.options;
+
+  const cont = async () => {
+    if (!picked) return;
+    setSubmitting(true);
+    try {
+      onSelect(picked);
+      onNav(SCREENS.ISSUE_SELECT);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingTop: 20 }}>
+        <BackButton onClick={() => onNav(SCREENS.CREATE_ACCOUNT)} />
+        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>{COPY.eligibility.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 12, marginTop: 0, marginBottom: 20 }}>
+          {COPY.eligibility.subtitle}
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+          {keys.map((k) => {
+            const selected = picked === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setPicked(k)}
+                style={{
+                  textAlign: "left",
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  border: `1.5px solid ${selected ? colors.accent : colors.border}`,
+                  background: selected ? colors.accentDim : colors.surfaceLight,
+                  cursor: "pointer",
+                  fontFamily: fontSans,
+                  color: colors.text,
+                  transition: "all 0.15s",
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{opts[k].label}</div>
+                <div style={{ fontSize: 11, color: colors.textMuted }}>{opts[k].body}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {!picked && (
+          <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 10 }}>
+            {COPY.eligibility.skipNote}
+          </div>
+        )}
+
+        <button
+          style={{ ...s.btn("primary"), opacity: submitting || !picked ? 0.6 : 1 }}
+          disabled={submitting || !picked}
+          onClick={cont}
+        >
+          {submitting ? COPY.eligibility.submitBusy : COPY.eligibility.submitIdle}
         </button>
       </div>
     </div>
@@ -1575,9 +1653,16 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
           <div style={s.sectionTitleFriendly}>{COPY.dashboard.quickActionsTitle}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {(() => {
+              // votingGuide tile re-labels based on eligibility — naturalizing
+              // users see "Path to citizenship", green-card "Civic engagement",
+              // etc. The destination is the same (Learn-to-Vote also branches
+              // on the same key). Falls back to default when eligibility unset.
+              const votingLabel =
+                COPY.dashboard.quickActions.votingGuideByEligibility[currentUser?.eligibility]
+                || COPY.dashboard.quickActions.votingGuide;
               const actions = [
                 { icon: "phone", label: COPY.dashboard.quickActions.contactRep, screen: SCREENS.CONTACT_REP },
-                { icon: "vote", label: COPY.dashboard.quickActions.votingGuide, screen: SCREENS.LEARN_TO_VOTE },
+                { icon: "vote", label: votingLabel, screen: SCREENS.LEARN_TO_VOTE },
                 { icon: "calendar", label: COPY.dashboard.quickActions.events, screen: SCREENS.EVENTS },
                 { icon: "dollar", label: COPY.dashboard.quickActions.followMoney, screen: SCREENS.SEARCH },
                 { icon: "home", label: COPY.dashboard.quickActions.stateReps, screen: SCREENS.STATE_REPS },
@@ -2580,11 +2665,17 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
 };
 
 // 15. LEARN TO VOTE
-const LearnToVoteScreen = ({ onNav, userState }) => {
+const LearnToVoteScreen = ({ onNav, userState, eligibility }) => {
   const stateKey = (userState || "").toUpperCase();
   const guide = STATE_VOTING_GUIDE[stateKey];
   const stateLabel = guide?.name || stateKey || "—";
   const rows = COPY.learnToVote.rows;
+  // Treat unknown / undefined eligibility as "citizen" — preserves the
+  // existing voting-guide view for accounts created before the eligibility
+  // screen shipped. The state-registration card only applies to voters,
+  // so non-citizen tracks suppress it in favor of their resource list.
+  const elig = COPY.learnToVote.byEligibility[eligibility] || COPY.learnToVote.byEligibility.citizen;
+  const showStateGuide = eligibility === "citizen" || !eligibility;
 
   const stateFacts = guide && [
     { label: rows.deadline, value: guide.registrationDeadline },
@@ -2598,59 +2689,69 @@ const LearnToVoteScreen = ({ onNav, userState }) => {
     { label: rows.official, url: guide.officialUrl },
   ];
 
+  const resources = elig.resources || COPY.learnToVote.resources;
+
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.DASHBOARD)} label="Dashboard" />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>{COPY.learnToVote.title}</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>{elig.title || COPY.learnToVote.title}</h2>
 
-        <div style={s.section}>
-          <div style={s.sectionTitle}>{COPY.learnToVote.yourStateTitle(stateLabel)}</div>
-          {guide ? (
-            <>
-              <div style={{ ...s.card, marginBottom: 8 }}>
-                {stateFacts.map((row, i) => (
-                  <div
-                    key={row.label}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                      paddingTop: i === 0 ? 0 : 10,
-                      paddingBottom: i === stateFacts.length - 1 ? 0 : 10,
-                      borderBottom: i < stateFacts.length - 1 ? `1px solid ${colors.border}` : "none",
-                    }}
-                  >
-                    <span style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600 }}>{row.label}</span>
-                    <span style={{ fontSize: 13, lineHeight: 1.4 }}>{row.value}</span>
-                  </div>
+        {elig.intro && (
+          <div style={{ ...s.card, marginBottom: 14, background: colors.accentDim, borderColor: colors.accent + "55" }}>
+            <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.text }}>{elig.intro}</div>
+          </div>
+        )}
+
+        {showStateGuide && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>{COPY.learnToVote.yourStateTitle(stateLabel)}</div>
+            {guide ? (
+              <>
+                <div style={{ ...s.card, marginBottom: 8 }}>
+                  {stateFacts.map((row, i) => (
+                    <div
+                      key={row.label}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                        paddingTop: i === 0 ? 0 : 10,
+                        paddingBottom: i === stateFacts.length - 1 ? 0 : 10,
+                        borderBottom: i < stateFacts.length - 1 ? `1px solid ${colors.border}` : "none",
+                      }}
+                    >
+                      <span style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600 }}>{row.label}</span>
+                      <span style={{ fontSize: 13, lineHeight: 1.4 }}>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+                {stateLinks.map((r) => (
+                  <a key={r.url} href={r.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
+                    <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span style={{ fontSize: 13 }}>{r.label}</span>
+                      <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
+                        <Icon type="back" size={14} />
+                      </span>
+                    </div>
+                  </a>
                 ))}
+                <p style={{ fontSize: 10, color: colors.textMuted, marginTop: 8 }}>
+                  {COPY.learnToVote.sourceNote}
+                </p>
+              </>
+            ) : (
+              <div style={s.card}>
+                <div style={{ fontSize: 12, lineHeight: 1.5 }}>{COPY.learnToVote.genericNote}</div>
               </div>
-              {stateLinks.map((r) => (
-                <a key={r.url} href={r.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
-                  <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 13 }}>{r.label}</span>
-                    <span style={{ color: colors.textMuted, transform: "rotate(180deg)", display: "inline-block" }}>
-                      <Icon type="back" size={14} />
-                    </span>
-                  </div>
-                </a>
-              ))}
-              <p style={{ fontSize: 10, color: colors.textMuted, marginTop: 8 }}>
-                {COPY.learnToVote.sourceNote}
-              </p>
-            </>
-          ) : (
-            <div style={s.card}>
-              <div style={{ fontSize: 12, lineHeight: 1.5 }}>{COPY.learnToVote.genericNote}</div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         <div style={s.section}>
           <div style={s.sectionTitle}>{COPY.learnToVote.resourcesTitle}</div>
-          {COPY.learnToVote.resources.map((r) => (
+          {resources.map((r) => (
             <a key={r.url} href={r.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
               <div style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <span style={{ fontSize: 13 }}>{r.label}</span>
@@ -3716,11 +3817,20 @@ export default function App() {
       name: "Guest",
       state: "CT",
       issues: ["healthcare", "environment"],
+      eligibility: "citizen", // guest demo defaults to the standard voter view
       is_guest: true,
     });
     setUserState("CT");
     setUserIssues(["healthcare", "environment"]);
     setCurrentScreen(SCREENS.DASHBOARD);
+  };
+
+  // Local-only eligibility — no backend column in this pass. Persists for the
+  // session (and through any setCurrentUser updates that spread the object);
+  // resets on logout. If we promote this to a real user field later, swap to
+  // an API call here and mirror in handleSaveIssues style.
+  const handleSetEligibility = (eligibility) => {
+    setCurrentUser((prev) => prev ? { ...prev, eligibility } : prev);
   };
 
   const handleSaveState = async (newState) => {
@@ -3828,6 +3938,7 @@ export default function App() {
       case SCREENS.SPLASH: return <SplashScreen {...common} />;
       case SCREENS.CREATE_ACCOUNT: return <CreateAccountScreen {...common} onSignedIn={handleSignedIn} />;
       case SCREENS.LOGIN: return <LoginScreen {...common} onSignedIn={handleSignedIn} onEnterGuest={handleEnterGuest} />;
+      case SCREENS.ELIGIBILITY: return <EligibilityScreen {...common} onSelect={handleSetEligibility} />;
       case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} currentUser={currentUser} onSaveIssues={handleSaveIssues} />;
       case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} currentUser={currentUser} userIssues={userIssues} />;
       case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} onSelectStateRep={selectStateRep} userState={userState} />;
@@ -3840,7 +3951,7 @@ export default function App() {
       case SCREENS.CONTACT_REP: return <ContactRepScreen {...common} userState={userState} />;
       case SCREENS.EVENTS: return <EventsScreen {...common} userState={userState} onSelectEvent={selectEvent} />;
       case SCREENS.EVENT_DETAIL: return <EventDetailScreen {...common} event={selectedEvent} />;
-      case SCREENS.LEARN_TO_VOTE: return <LearnToVoteScreen {...common} userState={userState} />;
+      case SCREENS.LEARN_TO_VOTE: return <LearnToVoteScreen {...common} userState={userState} eligibility={currentUser?.eligibility} />;
       case SCREENS.ALERTS: return <AlertsScreen {...common} onSelectPolitician={selectPolitician} />;
       case SCREENS.STATE_REPS: return <StateRepsScreen {...common} userState={userState} onSelectStateRep={selectStateRep} />;
       case SCREENS.STATE_REP_PROFILE: return <StateRepProfileScreen {...common} peopleId={selectedStatePeopleId} onSetStateRepData={setStateRepData} />;
@@ -3874,6 +3985,7 @@ export default function App() {
     [SCREENS.SPLASH, "Splash"],
     [SCREENS.CREATE_ACCOUNT, "Create Account"],
     [SCREENS.LOGIN, "Log In"],
+    [SCREENS.ELIGIBILITY, "Eligibility"],
     [SCREENS.ISSUE_SELECT, "Issue Select"],
     [SCREENS.DASHBOARD, "Dashboard"],
     [SCREENS.SEARCH, "Search"],
@@ -3965,6 +4077,14 @@ export default function App() {
     };
   } else {
     assistantContext = { screen: contextSourceScreen };
+  }
+
+  // Eligibility threads through every chat context — Mamu uses it to frame
+  // answers (e.g., "you can't vote in federal elections yet, but you can
+  // still contact your reps"). User-level, so it applies regardless of
+  // which screen built the context above.
+  if (currentUser?.eligibility) {
+    assistantContext = { ...assistantContext, eligibility: currentUser.eligibility };
   }
 
   // TermTip popovers can navigate the user to Mamu with a pre-filled question

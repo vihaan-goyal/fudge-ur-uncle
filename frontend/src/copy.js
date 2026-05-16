@@ -40,6 +40,31 @@ export const COPY = {
       guestLink: "Continue as guest",
     },
   },
+  eligibility: {
+    title: "Can you vote in U.S. elections?",
+    subtitle: "We'll tailor your guide. You can always change this later.",
+    options: {
+      citizen: {
+        label: "I'm a U.S. citizen",
+        body: "Born here or naturalized.",
+      },
+      naturalizing: {
+        label: "I'm becoming a citizen",
+        body: "Working through the naturalization process.",
+      },
+      green_card: {
+        label: "I have a green card",
+        body: "Permanent resident, not a citizen yet.",
+      },
+      not_sure: {
+        label: "I'm not sure",
+        body: "I'll help you figure it out.",
+      },
+    },
+    submitIdle: "Continue",
+    submitBusy: "Saving…",
+    skipNote: "Pick one to continue — democracy welcomes everybody.",
+  },
   onboarding: {
     title: "What issues matter most?",
     subtitle: "Select up to 5. This filters your alerts and feed.",
@@ -77,6 +102,15 @@ export const COPY = {
     quickActions: {
       contactRep: "Reach your rep",
       votingGuide: "How to vote",
+      // Per-eligibility overrides for the votingGuide tile. Destination is the
+      // same Learn-to-Vote screen — that screen branches on the same key.
+      // Undefined eligibility falls back to votingGuide.
+      votingGuideByEligibility: {
+        citizen: "How to vote",
+        naturalizing: "Path to citizenship",
+        green_card: "Civic engagement",
+        not_sure: "Are you eligible?",
+      },
       events: "What's happening locally",
       followMoney: "Who funds them",
       stateReps: "Your state lawmakers",
@@ -249,6 +283,48 @@ export const COPY = {
       { label: "Absentee / mail-in ballot", url: "https://www.vote.org/absentee-ballot/" },
       { label: "Check voter registration", url: "https://www.vote.org/am-i-registered-to-vote/" },
     ],
+    // Eligibility-specific banners + resource lists. Keyed by user.eligibility.
+    // Undefined / missing → fall back to citizen (back-compat for users who
+    // signed up before the eligibility screen existed).
+    byEligibility: {
+      citizen: {
+        intro: null, // existing behavior — no banner
+        title: "Voting guide",
+        resources: null, // use top-level COPY.learnToVote.resources
+      },
+      naturalizing: {
+        title: "Path to voting",
+        intro:
+          "You're not far off. Once you naturalize, you can register the same day in many states. Until then, study the civics test and follow the issues you care about.",
+        resources: [
+          { label: "USCIS citizenship resource center", url: "https://www.uscis.gov/citizenship" },
+          { label: "Study for the civics test", url: "https://www.uscis.gov/citizenship/learners/study-for-the-test" },
+          { label: "Practice civics test (100 questions)", url: "https://my.uscis.gov/prep/test/civics" },
+          { label: "Track your N-400 case", url: "https://egov.uscis.gov/casestatus/landing.do" },
+        ],
+      },
+      green_card: {
+        title: "Civic engagement",
+        intro:
+          "Federal and state elections require U.S. citizenship. But your reps still represent you — you can contact their offices, attend town halls, and follow the bills that affect your community. A few cities allow non-citizen voting in local school-board or municipal races.",
+        resources: [
+          { label: "Path to citizenship (eligibility worksheet)", url: "https://www.uscis.gov/citizenship/learn-about-citizenship/i-am-a-lawful-permanent-resident-of-5-years" },
+          { label: "USCIS citizenship resource center", url: "https://www.uscis.gov/citizenship" },
+          { label: "Contact your member of Congress", url: "https://www.house.gov/representatives/find-your-representative" },
+          { label: "Local non-citizen voting (where allowed)", url: "https://en.wikipedia.org/wiki/Non-citizen_suffrage_in_the_United_States" },
+        ],
+      },
+      not_sure: {
+        title: "Are you eligible?",
+        intro:
+          "U.S. elections require citizenship — born in the U.S., born abroad to a U.S. citizen parent, or naturalized. If you're not sure where you stand, USCIS has a short eligibility tool below.",
+        resources: [
+          { label: "Naturalization eligibility tool", url: "https://my.uscis.gov/citizenship/" },
+          { label: "USCIS citizenship resource center", url: "https://www.uscis.gov/citizenship" },
+          { label: "Find your nearest USCIS office", url: "https://www.uscis.gov/about-us/find-a-uscis-office" },
+        ],
+      },
+    },
   },
   // Plain-language category labels (used by the "coming up" feed). Sentence-
   // case so they read well as standalone chips. Falls back to a humanized
