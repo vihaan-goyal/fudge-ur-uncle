@@ -8,6 +8,47 @@
 // so the swap point covers the whole app, not just the dashboard.
 
 export const COPY = {
+  auth: {
+    splash: {
+      subtitle: "Hold your politicians accountable.\nFollow the money. Take action.",
+      primaryCta: "Create account",
+      secondaryCta: "Log in",
+      footer: "Democracy requires participation.",
+    },
+    createAccount: {
+      title: "Create account",
+      subtitle: "Your data stays yours. We never sell it.",
+      nameLabel: "Full name",
+      emailLabel: "Email",
+      stateLabel: "State (2-letter)",
+      stateHelper: "We use this to find your representatives",
+      passwordLabel: "Password",
+      submitIdle: "Continue",
+      submitBusy: "Creating…",
+      haveAccountPrompt: "Already have an account?",
+      haveAccountLink: "Log in",
+    },
+    login: {
+      title: "Welcome back",
+      emailLabel: "Email",
+      passwordLabel: "Password",
+      submitIdle: "Log in",
+      submitBusy: "Logging in…",
+      newHerePrompt: "New here?",
+      newHereLink: "Create an account",
+      guestPrompt: "Just looking?",
+      guestLink: "Continue as guest",
+    },
+  },
+  onboarding: {
+    title: "What issues matter most?",
+    subtitle: "Select up to 5. This filters your alerts and feed.",
+    selectionCounter: (n, max) => `${n}/${max} selected`,
+    atMaxNote: " · deselect one to choose another",
+    saveBtnIdle: "Done — show me my reps",
+    saveBtnBusy: "Saving…",
+    saveBtnAtMin: "Pick at least one to continue",
+  },
   dashboard: {
     // Header — personalised greeting. Uses the user's first name when we
     // have one, falls back to a generic friendly opener for anonymous /

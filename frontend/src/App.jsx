@@ -726,16 +726,16 @@ const SplashScreen = ({ onNav, offline }) => (
         <br />
         <span style={{ color: colors.text }}>UR UNCLE</span>
       </div>
-      <p style={{ color: colors.textMuted, fontSize: 13, lineHeight: 1.5, marginBottom: 40 }}>
-        Hold your politicians accountable.<br />Follow the money. Take action.
+      <p style={{ color: colors.textMuted, fontSize: 13, lineHeight: 1.5, marginBottom: 40, whiteSpace: "pre-line" }}>
+        {COPY.auth.splash.subtitle}
       </p>
       <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
-        <button style={s.btn("primary")} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Create Account</button>
-        <button style={s.btn("outline")} onClick={() => onNav(SCREENS.LOGIN)}>Log In</button>
+        <button style={s.btn("primary")} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>{COPY.auth.splash.primaryCta}</button>
+        <button style={s.btn("outline")} onClick={() => onNav(SCREENS.LOGIN)}>{COPY.auth.splash.secondaryCta}</button>
       </div>
     </div>
     <div style={{ padding: "20px 40px 40px", textAlign: "center", fontSize: 10, color: colors.textMuted }}>
-      Democracy requires participation.
+      {COPY.auth.splash.footer}
     </div>
   </div>
 );
@@ -772,36 +772,36 @@ const CreateAccountScreen = ({ onNav, onSignedIn, offline }) => {
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingTop: 20 }}>
         <BackButton onClick={() => onNav(SCREENS.SPLASH)} />
-        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>Create Account</h2>
-        <p style={{ color: colors.textMuted, fontSize: 12, marginBottom: 20, marginTop: 0 }}>Your data stays yours. We never sell it.</p>
+        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>{COPY.auth.createAccount.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 12, marginBottom: 20, marginTop: 0 }}>{COPY.auth.createAccount.subtitle}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Full Name</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.createAccount.nameLabel}</label>
             <input style={s.input} placeholder="Jane Doe" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.createAccount.emailLabel}</label>
             <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>State (2-letter)</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.createAccount.stateLabel}</label>
             <input style={s.input} placeholder="CT" value={state} onChange={(e) => setStateVal(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} />
             <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 4 }}>
-              We use this to find your representatives
+              {COPY.auth.createAccount.stateHelper}
             </div>
           </div>
           <div style={s.divider} />
-          <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
+          <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.createAccount.passwordLabel}</label>
           <input style={s.input} type="password" autoComplete="new-password" placeholder="Min 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
           {error && (
             <div style={{ fontSize: 11, color: colors.red }}>{error}</div>
           )}
           <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
-            {submitting ? "Creating..." : "Continue"}
+            {submitting ? COPY.auth.createAccount.submitBusy : COPY.auth.createAccount.submitIdle}
           </button>
           <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted }}>
-            Already have an account?{" "}
-            <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.LOGIN)}>Log in</span>
+            {COPY.auth.createAccount.haveAccountPrompt}{" "}
+            <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.LOGIN)}>{COPY.auth.createAccount.haveAccountLink}</span>
           </div>
         </div>
       </div>
@@ -837,33 +837,33 @@ const LoginScreen = ({ onNav, onSignedIn, offline, onEnterGuest }) => {
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingTop: 20 }}>
         <BackButton onClick={() => onNav(SCREENS.SPLASH)} />
-        <h2 style={{ ...s.headerTitle, marginBottom: 20 }}>Welcome Back</h2>
+        <h2 style={{ ...s.headerTitle, marginBottom: 20 }}>{COPY.auth.login.title}</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Email</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.login.emailLabel}</label>
             <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>Password</label>
+            <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.login.passwordLabel}</label>
             <input style={s.input} type="password" autoComplete="current-password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
           </div>
           {error && (
             <div style={{ fontSize: 11, color: colors.red }}>{error}</div>
           )}
           <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
-            {submitting ? "Logging in..." : "Log In"}
+            {submitting ? COPY.auth.login.submitBusy : COPY.auth.login.submitIdle}
           </button>
           <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted }}>
-            New here?{" "}
-            <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Create an account</span>
+            {COPY.auth.login.newHerePrompt}{" "}
+            <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>{COPY.auth.login.newHereLink}</span>
           </div>
           {/* Temporary guest mode — handy for handing the phone to someone
               for a quick demo. User asked for this to be easy to remove
               later; the link + onEnterGuest prop are the whole footprint. */}
           {onEnterGuest && (
-            <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 4 }}>
-              Just looking?{" "}
-              <span style={{ color: colors.accent, cursor: "pointer", textDecoration: "underline" }} onClick={onEnterGuest}>Continue as guest</span>
+            <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted, marginTop: 4 }}>
+              {COPY.auth.login.guestPrompt}{" "}
+              <span style={{ color: colors.accent, cursor: "pointer", textDecoration: "underline" }} onClick={onEnterGuest}>{COPY.auth.login.guestLink}</span>
             </div>
           )}
         </div>
@@ -906,8 +906,8 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingTop: 12 }}>
-        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>What Issues Matter Most?</h2>
-        <p style={{ color: colors.textMuted, fontSize: 12, marginTop: 0, marginBottom: 16 }}>Select up to 5. This filters your alerts and feed.</p>
+        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>{COPY.onboarding.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 12, marginTop: 0, marginBottom: 16 }}>{COPY.onboarding.subtitle}</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
           {Object.keys(COPY.categories).map((key) => (
             <button key={key} style={s.chip(selected.includes(key))} onClick={() => toggle(key)}>
@@ -916,7 +916,7 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
           ))}
         </div>
         <div style={{ fontSize: 12, color: atMax ? colors.accent : colors.textMuted, marginBottom: 12 }}>
-          {selected.length}/5 selected{atMax ? " · deselect one to choose another" : ""}
+          {COPY.onboarding.selectionCounter(selected.length, 5)}{atMax ? COPY.onboarding.atMaxNote : ""}
         </div>
         {error && (
           <div style={{ fontSize: 11, color: colors.red, marginBottom: 8 }}>{error}</div>
@@ -926,7 +926,7 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
           disabled={submitting || atMin}
           onClick={done}
         >
-          {submitting ? "Saving..." : atMin ? "Pick at least one to continue" : "Done - Show Me My Reps"}
+          {submitting ? COPY.onboarding.saveBtnBusy : atMin ? COPY.onboarding.saveBtnAtMin : COPY.onboarding.saveBtnIdle}
         </button>
       </div>
     </div>
