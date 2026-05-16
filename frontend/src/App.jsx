@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useContext, createContext } from "react";
 import { createPortal } from "react-dom";
 import { api, auth, SAMPLE } from "./api.js";
 import { groupAlerts } from "./groupAlerts.js";
@@ -414,7 +414,14 @@ const FadeIn = ({ children, delay = 0, duration = 300, style }) => (
 // wired manually. Escape and click-outside close the popover.
 const TERMTIP_POPOVER_W = 240;
 
+// App-provided callback for the popover's "Ask Mamu" CTA. App fills this in
+// inside its render so it can pre-fill the chat input and navigate to the
+// Mamu tab. If no provider is in scope (tests, isolated previews), the CTA
+// is hidden — the popover still works as a plain definition card.
+const TermTipActionContext = createContext(null);
+
 const TermTip = ({ term, children }) => {
+  const action = useContext(TermTipActionContext);
   const [open, setOpen] = useState(false);
   // Popover position in viewport coords. Computed on open so the popover
   // anchors below the trigger but clamps inside the nearest clipping
@@ -511,6 +518,33 @@ const TermTip = ({ term, children }) => {
           >
             <div style={{ fontWeight: 700, marginBottom: 4, color: colors.text }}>{def.label}</div>
             <div style={{ color: colors.textMuted }}>{def.body}</div>
+            {action && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  action.onLearnMore(term, def.label);
+                }}
+                style={{
+                  marginTop: 10,
+                  padding: "6px 0 0",
+                  borderTop: `1px solid ${colors.border}`,
+                  background: "none",
+                  border: "none",
+                  borderTopColor: colors.border,
+                  borderTopStyle: "solid",
+                  borderTopWidth: 1,
+                  width: "100%",
+                  textAlign: "left",
+                  color: colors.accent,
+                  fontFamily: fontSans,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >{COPY.assistant.learnMoreCta}</button>
+            )}
           </div>
         </>,
         document.body
@@ -554,6 +588,8 @@ const AssistantScreen = ({
   errorMsg, setErrorMsg,
   onClearChat,
   isGuest,
+  pendingPrompt,
+  onConsumePendingPrompt,
 }) => {
   const submit = async (overrideText) => {
     const text = (overrideText ?? input).trim();
@@ -574,6 +610,17 @@ const AssistantScreen = ({
       setSending(false);
     }
   };
+
+  // Auto-submit any queued question from a TermTip "Ask Mamu" tap. Clear the
+  // pending value first so a re-render doesn't double-submit. Guests are
+  // gated below — drop the prompt without firing.
+  useEffect(() => {
+    if (!pendingPrompt) return;
+    if (isGuest) { onConsumePendingPrompt?.(); return; }
+    onConsumePendingPrompt?.();
+    submit(pendingPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPrompt, isGuest]);
 
   const chipText = (() => {
     if (!context) return null;
@@ -3611,6 +3658,9 @@ export default function App() {
   const [assistantInput, setAssistantInput] = useState("");
   const [assistantSending, setAssistantSending] = useState(false);
   const [assistantError, setAssistantError] = useState("");
+  // Queued question from a TermTip "Ask Mamu" tap. AssistantScreen consumes
+  // this on mount, auto-submits, and clears it. Null when no question pending.
+  const [pendingAssistantPrompt, setPendingAssistantPrompt] = useState(null);
 
   // The screen the user was on right before entering the Ask tab. Drives the
   // assistantContext below so the chatbot still knows "you came from this
@@ -3763,6 +3813,15 @@ export default function App() {
     setCurrentScreen(SCREENS.EVENT_DETAIL);
   };
 
+  // Triggered by the TermTip "Ask Mamu" CTA. Stashes the question; the chat
+  // screen consumes it on mount and auto-submits, so the user lands inside a
+  // running answer rather than an empty input. Stays a no-op for guests at
+  // the AssistantScreen layer (its existing sign-up gate kicks in).
+  const handleLearnMore = (term, label) => {
+    setPendingAssistantPrompt(COPY.assistant.learnMorePrompt(label));
+    setCurrentScreen(SCREENS.ASSISTANT);
+  };
+
   const renderScreen = () => {
     const common = { onNav: navigate, offline: globalOffline };
     switch (currentScreen) {
@@ -3803,6 +3862,8 @@ export default function App() {
         setErrorMsg={setAssistantError}
         onClearChat={() => { setAssistantMessages([]); setAssistantInput(""); setAssistantError(""); }}
         isGuest={currentUser?.is_guest === true}
+        pendingPrompt={pendingAssistantPrompt}
+        onConsumePendingPrompt={() => setPendingAssistantPrompt(null)}
       />;
       default: return <SplashScreen {...common} />;
     }
@@ -3906,20 +3967,26 @@ export default function App() {
     assistantContext = { screen: contextSourceScreen };
   }
 
+  // TermTip popovers can navigate the user to Mamu with a pre-filled question
+  // — expose the handler via context so individual TermTips don't need
+  // App-level prop drilling. Provider wraps both render branches.
+  const termTipAction = { onLearnMore: handleLearnMore };
+
   // In PWA mode the app fills the viewport directly — no dev header, no
   // screen-selector pills, no centered phone-frame container. The screen
   // already styles itself for full-bleed via s.phone (which switches to
   // 100vw/100vh in PWA mode).
   if (_IS_PWA_AT_BOOT) {
     return (
-      <>
+      <TermTipActionContext.Provider value={termTipAction}>
         {renderScreen()}
         {assistantPillEl}
-      </>
+      </TermTipActionContext.Provider>
     );
   }
 
   return (
+    <TermTipActionContext.Provider value={termTipAction}>
     <div style={{ minHeight: "100vh", background: "#060810", fontFamily: fontSans, color: colors.text }}>
       {/* Top bar */}
       <div style={{ padding: "20px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
@@ -3963,5 +4030,6 @@ export default function App() {
       </div>
       {assistantPillEl}
     </div>
+    </TermTipActionContext.Provider>
   );
 }

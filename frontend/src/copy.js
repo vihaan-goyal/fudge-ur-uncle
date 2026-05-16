@@ -293,6 +293,10 @@ export const COPY = {
       dashboard: "On your dashboard",
     },
     disclaimer: "AI-generated — verify important details on the official source.",
+    // Shown on the glossary popover; tapping it pre-fills + auto-submits a
+    // question to Mamu so the user can dig deeper than the one-line definition.
+    learnMoreCta: "Ask Mamu →",
+    learnMorePrompt: (label) => `Can you explain "${label}" in simple terms? Use examples a new voter would recognize.`,
   },
 };
 
