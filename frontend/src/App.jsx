@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { api, auth, SAMPLE } from "./api.js";
 import { groupAlerts } from "./groupAlerts.js";
-import { COPY, friendlyCategory, friendlyCategoryInline, STATE_VOTING_GUIDE } from "./copy.js";
+import { COPY, friendlyCategory, friendlyCategoryInline, STATE_VOTING_GUIDE, GLOSSARY } from "./copy.js";
 
 // ============================================================
 // CONSTANTS
@@ -404,6 +405,140 @@ const FadeIn = ({ children, delay = 0, duration = 300, style }) => (
     {children}
   </div>
 );
+
+// Tap-to-define inline tooltip. Wraps a civics term ("PAC", "Yea", etc.) with
+// a dotted underline; tapping opens a small popover with the definition from
+// GLOSSARY (copy.js). Built as a span+role="button" rather than a native
+// <button> so it can sit inside other buttons (rep cards, score tiles) without
+// nested-button validation issues — keyboard handling for Enter/Space is
+// wired manually. Escape and click-outside close the popover.
+const TERMTIP_POPOVER_W = 240;
+
+const TermTip = ({ term, children }) => {
+  const [open, setOpen] = useState(false);
+  // Popover position in viewport coords. Computed on open so the popover
+  // anchors below the trigger but clamps inside the nearest clipping
+  // ancestor (the phone frame in browser dev mode, the viewport in PWA).
+  const [popoverPos, setPopoverPos] = useState({ left: 0, top: 0 });
+  const triggerRef = useRef(null);
+  const def = GLOSSARY[term];
+
+  useEffect(() => {
+    if (!open) return;
+    const trigger = triggerRef.current;
+    if (trigger) {
+      const tRect = trigger.getBoundingClientRect();
+      // Walk up to find the nearest overflow:hidden ancestor — that's the
+      // phone frame in our app. Fall back to the viewport if not found.
+      let clipper = trigger.parentElement;
+      while (clipper) {
+        const cs = window.getComputedStyle(clipper);
+        if (cs.overflow === "hidden" || cs.overflowX === "hidden") break;
+        clipper = clipper.parentElement;
+      }
+      const cRect = clipper
+        ? clipper.getBoundingClientRect()
+        : { left: 0, right: window.innerWidth };
+      const PAD = 12;
+      const minLeft = cRect.left + PAD;
+      const maxLeft = cRect.right - PAD - TERMTIP_POPOVER_W;
+      // Anchor at trigger's left; clamp if it would overflow either edge.
+      const clampedLeft = maxLeft < minLeft
+        ? minLeft
+        : Math.min(maxLeft, Math.max(minLeft, tRect.left));
+      setPopoverPos({ left: clampedLeft, top: tRect.bottom + 6 });
+    }
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!def) return <>{children}</>;
+
+  const toggle = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setOpen((o) => !o);
+  };
+
+  // Portal the popover to <body> so it escapes any transformed/overflow-hidden
+  // ancestors (rep cards use `transform` for press feedback, which would
+  // otherwise convert position:fixed → position:absolute relative to the card).
+  // Rendering at the body level means viewport coords are honored verbatim.
+  const overlay = open && typeof document !== "undefined"
+    ? createPortal(
+        <>
+          {/* Modal scrim — while the definition is open, all clicks/taps land
+              here, close the popover, and stop propagating. Without this,
+              React's synthetic event system bubbles portaled clicks up the
+              component tree and triggers the underlying rep-card button's
+              onClick / press feedback. PointerDown is also stopped so the
+              card's :active press transform doesn't fire on the dismissing tap. */}
+          <div
+            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            style={{ position: "fixed", inset: 0, zIndex: 90 }}
+            aria-hidden="true"
+          />
+          <div
+            role="tooltip"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: popoverPos.left,
+              top: popoverPos.top,
+              width: TERMTIP_POPOVER_W,
+              maxWidth: TERMTIP_POPOVER_W,
+              zIndex: 91,
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              boxShadow:
+                "0 10px 24px -10px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.05)",
+              fontFamily: fontSans,
+              fontSize: 12,
+              lineHeight: 1.45,
+              color: colors.text,
+              fontWeight: 400,
+              textAlign: "left",
+              whiteSpace: "normal",
+              boxSizing: "border-box",
+              animation: "fuu-fade-up 0.18s cubic-bezier(0.16, 1, 0.3, 1) both",
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4, color: colors.text }}>{def.label}</div>
+            <div style={{ color: colors.textMuted }}>{def.body}</div>
+          </div>
+        </>,
+        document.body
+      )
+    : null;
+
+  return (
+    <span style={{ display: "inline-block" }}>
+      <span
+        ref={triggerRef}
+        role="button"
+        tabIndex={0}
+        onClick={toggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") toggle(e);
+        }}
+        aria-expanded={open}
+        aria-label={`Define ${def.label}`}
+        style={{
+          borderBottom: `1px dotted ${colors.accent}`,
+          cursor: "help",
+          color: "inherit",
+        }}
+      >{children}</span>
+      {overlay}
+    </span>
+  );
+};
 
 // Civics-helper chat. Now a full-screen tab (not a modal sheet) so the
 // conversation is a first-class destination instead of a transient overlay.
@@ -1061,11 +1196,15 @@ const RepCard = ({ rep, onClick }) => {
           {renderValue(funding?.total_raised, colors.accent)}
         </div>
         <div>
-          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>PAC $</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>
+            <TermTip term="pac">PAC</TermTip> $
+          </div>
           {renderValue(funding?.pac_total)}
         </div>
         <div>
-          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Small $</div>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>
+            <TermTip term="small_donor">Small</TermTip> $
+          </div>
           {renderValue(funding?.small_donor_total)}
         </div>
       </div>
@@ -1658,7 +1797,9 @@ const PoliticianProfileScreen = ({ onNav, bioguideId, onSetProfileData }) => {
               <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.green }}>
                 {v.yea_count}<span style={{ color: colors.textMuted, fontSize: 14 }}>/{v.total_tracked}</span>
               </div>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>{COPY.profile.yeaVotesLabel}</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>
+                <TermTip term="yea">Yea</TermTip> votes
+              </div>
             </div>
           </FadeIn>
           <FadeIn delay={180}>
@@ -1740,7 +1881,9 @@ const FundingScreen = ({ onNav, profileData }) => {
           <div style={{ display: "flex", justifyContent: "center", gap: 20, marginTop: 8 }}>
             <div>
               <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>{fmt(f.pac_total)}</span>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>PAC</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>
+                <TermTip term="pac">PAC</TermTip>
+              </div>
             </div>
             <div>
               <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>{fmt(f.individual_total)}</span>
@@ -1748,14 +1891,16 @@ const FundingScreen = ({ onNav, profileData }) => {
             </div>
             <div>
               <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>{fmt(f.small_donor_total)}</span>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Small $</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>
+                <TermTip term="small_donor">Small</TermTip> $
+              </div>
             </div>
           </div>
         </div>
 
         {industries.length > 0 && (
           <div style={s.section}>
-            <div style={s.sectionTitle}>Top Industries</div>
+            <div style={s.sectionTitle}>Top <TermTip term="industry">Industries</TermTip></div>
             {industries.map((ind, i) => (
               <div key={i} style={{ marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
@@ -1803,7 +1948,10 @@ const VotingHistoryScreen = ({ onNav, profileData }) => {
       <StatusBar />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>{COPY.profile.votingHistory.title}</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.profile.votingHistory.title}</h2>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 12 }}>
+          <TermTip term="yea">Yea</TermTip> / <TermTip term="nay">Nay</TermTip> on recent <TermTip term="roll_call">roll-call</TermTip> votes
+        </div>
         {cats.length > 1 && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
             {cats.map((c) => (
@@ -2988,13 +3136,17 @@ const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.accent }}>
               {sponsoredCount}
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Sponsored bills</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>
+              <TermTip term="sponsor">Sponsored</TermTip> bills
+            </div>
           </div>
           <div style={{ ...s.card, textAlign: "center", marginBottom: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: font, color: colors.blue }}>
               {data.chamber || "—"}
             </div>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>Chamber</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 2 }}>
+              <TermTip term="chamber">Chamber</TermTip>
+            </div>
           </div>
         </div>
 
@@ -3026,7 +3178,7 @@ const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
 
         {sponsoredCount > 0 && (
           <div style={s.section}>
-            <div style={s.sectionTitle}>{COPY.stateProfile.recentSponsored}</div>
+            <div style={s.sectionTitle}>Recent <TermTip term="sponsor">sponsored</TermTip> bills</div>
             {(data.sponsored_bills || []).slice(0, 5).map((b, i) => (
               <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${colors.border}` }}>
                 <div style={{ fontSize: 12, fontWeight: 600 }}>{b.number}</div>
@@ -3062,7 +3214,7 @@ const StateRepVotingScreen = ({ onNav, peopleId, stateRepData }) => {
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.stateProfile.voting.title}</h2>
         <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 12 }}>
-          {COPY.stateProfile.voting.subtitle}
+          Recent <TermTip term="roll_call">roll calls</TermTip> on <TermTip term="sponsor">sponsored</TermTip> legislation
         </div>
 
         {loading && <Loading label={COPY.stateProfile.voting.loading} />}
@@ -3426,7 +3578,8 @@ const StateRepAlertsScreen = ({ onNav, peopleId, stateRepData }) => {
 
         {isReal && alerts && alerts.length > 0 && (
           <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 8, lineHeight: 1.5 }}>
-            {COPY.alerts.stateFooterNote}
+            State alerts use FTM industry aggregates and Legiscan{" "}
+            <TermTip term="engrossed">engrossed</TermTip>-bill statuses. Scores typically run lower than federal alerts because aggregate data carries less per-donation signal.
           </div>
         )}
       </div>

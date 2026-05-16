@@ -364,3 +364,47 @@ export const STATE_VOTING_GUIDE = {
     pollingHours: "7 AM – 8 PM (some towns open earlier)",
   },
 };
+
+// Plain-language definitions for civics jargon that appears on screen.
+// Wrapped by <TermTip term="..."> in App.jsx — dotted underline on the term,
+// tap to read the definition. Keep entries short (1–2 sentences) and avoid
+// defining jargon with more jargon. Adding a term: add an entry here, then
+// wrap the matching label or word in App.jsx.
+export const GLOSSARY = {
+  pac: {
+    label: "PAC",
+    body: "Political Action Committee — a group that pools money to back candidates. Often funded by an industry, union, or company employees.",
+  },
+  small_donor: {
+    label: "Small-donor",
+    body: "Contributions of $200 or less, usually from individual supporters rather than companies or PACs.",
+  },
+  industry: {
+    label: "Industry",
+    body: "A category we use to group donors — pharma, oil & gas, tech — so you can see whose money is moving alongside a vote.",
+  },
+  yea: {
+    label: "Yea",
+    body: "A 'yes' vote on a bill or motion. The official wording legislatures use when calling the roll.",
+  },
+  nay: {
+    label: "Nay",
+    body: "A 'no' vote on a bill or motion.",
+  },
+  roll_call: {
+    label: "Roll-call vote",
+    body: "A vote where every legislator's individual yes/no is recorded by name. That's how we hold them accountable on a specific bill.",
+  },
+  sponsor: {
+    label: "Sponsor",
+    body: "The legislator who formally introduces a bill. They lead the push to get it passed.",
+  },
+  engrossed: {
+    label: "Engrossed",
+    body: "A state bill that has passed one chamber and is moving to the other — close to becoming law, but not there yet.",
+  },
+  chamber: {
+    label: "Chamber",
+    body: "One of the two halves of a legislature. In Congress: the House and the Senate. Most states work the same way.",
+  },
+};

@@ -76,6 +76,8 @@ cd frontend && npm test
 
 **Category display:** always use `friendlyCategory()` / `friendlyCategoryInline()` from `copy.js` — never raw keys or `charAt(0).toUpperCase()`.
 
+**Civics glossary:** `GLOSSARY` in `copy.js` (term key → `{label, body}`). Wrap user-visible jargon with `<TermTip term="pac">PAC</TermTip>` — dotted underline + tap-to-define popover. Popover portals to `document.body` with `position: fixed` because rep cards use `transform` (would otherwise convert nested `position: fixed` into card-relative `absolute`). Scrim stops `click`/`pointerdown`/`mousedown`/`touchstart` so the underlying button doesn't fire on dismiss.
+
 **Dashboard** targets new voters / immigrants: quick actions → Coming up → Your reps. "Coming up" calls `/api/upcoming-votes`, renders first 3. Personalized by user issues when signed in.
 
 **Warm-card surfaces** (`ComingUpCard`, `RepCardShell`, `QuickActionButton`) bypass `s.card` — white surface, accent-tinted shadow. `ComingUpCard` outer is a non-interactive `<div>`; each row is its own `<button>` (global CSS press feedback, no JS state). Don't mix warm-card and cream `s.card` on the same surface.
