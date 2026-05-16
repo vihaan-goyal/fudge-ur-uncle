@@ -80,6 +80,8 @@ cd frontend && npm test
 
 **Dashboard** targets new voters / immigrants: quick actions → Coming up → Your reps. "Coming up" calls `/api/upcoming-votes`, renders first 3. Personalized by user issues when signed in.
 
+**Eligibility-aware onboarding:** `SCREENS.ELIGIBILITY` sits between Create Account and Issue Select. 4 keys: `citizen` / `naturalizing` / `green_card` / `not_sure`. Stored on `currentUser.eligibility` (local-only — resets on logout, no backend column yet). Drives three surfaces: `COPY.learnToVote.byEligibility[key]` swaps the Learn-to-Vote intro + resources and suppresses the state-registration card for non-citizens; the dashboard's "How to vote" tile re-labels via `quickActions.votingGuideByEligibility`; `assistantContext.eligibility` reaches the backend, where `_ELIGIBILITY_NOTES` in `assistant_chat.py` prepends a framing line to Mamu's system message. Undefined eligibility (accounts pre-dating this) falls back to the citizen view — don't add strict null-guards at the read sites.
+
 **Warm-card surfaces** (`ComingUpCard`, `RepCardShell`, `QuickActionButton`) bypass `s.card` — white surface, accent-tinted shadow. `ComingUpCard` outer is a non-interactive `<div>`; each row is its own `<button>` (global CSS press feedback, no JS state). Don't mix warm-card and cream `s.card` on the same surface.
 
 **Motion:** `fuu-anim-styles` (module-level `<style>`, idempotent on HMR) defines `fuu-fade-up`, `fuu-shimmer`, `fuu-soft-pulse` + global `button:active` press rule + `prefers-reduced-motion` blanket. Staggered lists use `<FadeIn delay={Math.min(i*N, cap)}>`. Don't add JS-driven perpetual animation — use CSS keyframes.
