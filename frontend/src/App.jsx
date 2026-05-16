@@ -1088,17 +1088,44 @@ const IssueSelectScreen = ({ onNav, offline, currentUser, onSaveIssues }) => {
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
-      <div style={{ ...s.body, paddingTop: 12 }}>
-        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>{COPY.onboarding.title}</h2>
-        <p style={{ color: colors.textMuted, fontSize: 12, marginTop: 0, marginBottom: 16 }}>{COPY.onboarding.subtitle}</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-          {Object.keys(COPY.categories).map((key) => (
-            <button key={key} style={s.chip(selected.includes(key))} onClick={() => toggle(key)}>
-              {friendlyCategory(key)}
-            </button>
-          ))}
+      <div style={{ ...s.body, paddingTop: 16 }}>
+        <h2 style={{ ...s.headerTitle, fontSize: 17, marginBottom: 4 }}>{COPY.onboarding.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, marginBottom: 14, lineHeight: 1.4 }}>{COPY.onboarding.subtitle}</p>
+        {/* 2-column card grid — mirrors EligibilityScreen's option-card visual
+            (rounded, accent-tinted on select) but compact enough to fit 14
+            categories without a marathon scroll. Disabled (greyed) when the
+            5-pick cap is hit so the constraint is visible, not silent. */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 14 }}>
+          {Object.keys(COPY.categories).map((key) => {
+            const isSelected = selected.includes(key);
+            const isDisabled = !isSelected && atMax;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggle(key)}
+                disabled={isDisabled}
+                style={{
+                  textAlign: "left",
+                  padding: "10px 12px",
+                  borderRadius: 11,
+                  border: `1.5px solid ${isSelected ? colors.accent : colors.border}`,
+                  background: isSelected ? colors.accentDim : colors.surfaceLight,
+                  cursor: isDisabled ? "not-allowed" : "pointer",
+                  fontFamily: fontSans,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: isSelected ? colors.accent : colors.text,
+                  opacity: isDisabled ? 0.45 : 1,
+                  transition: "all 0.15s",
+                }}
+              >
+                {friendlyCategory(key)}
+              </button>
+            );
+          })}
         </div>
-        <div style={{ fontSize: 12, color: atMax ? colors.accent : colors.textMuted, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: atMax ? colors.accent : colors.textMuted, marginBottom: 10 }}>
           {COPY.onboarding.selectionCounter(selected.length, 5)}{atMax ? COPY.onboarding.atMaxNote : ""}
         </div>
         {error && (
@@ -1141,14 +1168,14 @@ const EligibilityScreen = ({ onNav, offline, onSelect }) => {
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
-      <div style={{ ...s.body, paddingTop: 20 }}>
+      <div style={{ ...s.body, paddingTop: 16 }}>
         <BackButton onClick={() => onNav(SCREENS.CREATE_ACCOUNT)} />
-        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>{COPY.eligibility.title}</h2>
-        <p style={{ color: colors.textMuted, fontSize: 12, marginTop: 0, marginBottom: 20 }}>
+        <h2 style={{ ...s.headerTitle, fontSize: 17, marginBottom: 4 }}>{COPY.eligibility.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0, marginBottom: 14, lineHeight: 1.4 }}>
           {COPY.eligibility.subtitle}
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
           {keys.map((k) => {
             const selected = picked === k;
             return (
@@ -1158,8 +1185,8 @@ const EligibilityScreen = ({ onNav, offline, onSelect }) => {
                 onClick={() => setPicked(k)}
                 style={{
                   textAlign: "left",
-                  padding: "12px 14px",
-                  borderRadius: 12,
+                  padding: "9px 12px",
+                  borderRadius: 11,
                   border: `1.5px solid ${selected ? colors.accent : colors.border}`,
                   background: selected ? colors.accentDim : colors.surfaceLight,
                   cursor: "pointer",
@@ -1168,15 +1195,15 @@ const EligibilityScreen = ({ onNav, offline, onSelect }) => {
                   transition: "all 0.15s",
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{opts[k].label}</div>
-                <div style={{ fontSize: 11, color: colors.textMuted }}>{opts[k].body}</div>
+                <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 1 }}>{opts[k].label}</div>
+                <div style={{ fontSize: 10.5, color: colors.textMuted, lineHeight: 1.35 }}>{opts[k].body}</div>
               </button>
             );
           })}
         </div>
 
         {!picked && (
-          <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 10 }}>
+          <div style={{ fontSize: 10.5, color: colors.textMuted, marginBottom: 8 }}>
             {COPY.eligibility.skipNote}
           </div>
         )}
@@ -2922,7 +2949,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
 }
 
 // 17. SETTINGS
-const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues, onSaveIssues, onSignOut, onDeleteAccount }) => {
+const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues, onSaveIssues, onSaveEligibility, onSignOut, onDeleteAccount }) => {
   const [editState, setEditState] = useState(userState || "CT");
   const [backendStatus, setBackendStatus] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
@@ -3033,6 +3060,47 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
             )}
           </div>
         </div>
+
+        {currentUser && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>Voting eligibility</div>
+            <div style={s.card}>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginBottom: 10, lineHeight: 1.4 }}>
+                Drives the "How to vote" tile, Learn-to-Vote resources, and how Mamu frames answers about voting.
+              </div>
+              {/* Tap-to-save — no Save button. Eligibility is single-select with
+                  no validation, so instant save matches the lighter mental model
+                  here (vs. Issues, which has a 5-cap + a Save button). */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {["citizen", "naturalizing", "green_card", "not_sure"].map((k) => {
+                  const opt = COPY.eligibility.options[k];
+                  const isSelected = currentUser?.eligibility === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => onSaveEligibility?.(k)}
+                      style={{
+                        textAlign: "left",
+                        padding: "9px 12px",
+                        borderRadius: 11,
+                        border: `1.5px solid ${isSelected ? colors.accent : colors.border}`,
+                        background: isSelected ? colors.accentDim : colors.surface,
+                        cursor: "pointer",
+                        fontFamily: fontSans,
+                        color: colors.text,
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 1 }}>{opt.label}</div>
+                      <div style={{ fontSize: 10.5, color: colors.textMuted, lineHeight: 1.35 }}>{opt.body}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div style={s.section}>
           <div style={s.sectionTitle}>{COPY.settings.issuesTitle}</div>
@@ -3959,7 +4027,7 @@ export default function App() {
       case SCREENS.STATE_REP_STANCES: return <StateRepStancesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_PROMISES: return <StateRepPromisesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_ALERTS: return <StateRepAlertsScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
-      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} userIssues={userIssues} onSaveIssues={handleSaveIssues} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
+      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} userIssues={userIssues} onSaveIssues={handleSaveIssues} onSaveEligibility={handleSetEligibility} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
       case SCREENS.ASSISTANT: return <AssistantScreen
         {...common}
         context={assistantContext}
