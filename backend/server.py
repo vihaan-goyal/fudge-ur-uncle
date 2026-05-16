@@ -235,7 +235,13 @@ async def get_rep_funding_lite(bioguide_id: str):
                 ai_cache.set(cache_key, result, ttl_hours=24)
                 return result
         result = {"bioguide_id": bioguide_id, "has_data": False, "source": "none"}
-        ai_cache.set(cache_key, result, ttl_hours=24)
+        # Negative cache gets a short TTL (15min) — long enough to absorb a
+        # dashboard fan-out (5–7 reps loading at once) but short enough that
+        # transient WBMR/FEC misses self-heal on the next page open. Murphy
+        # got pinned with has_data:false for 24h because WBMR was flaky AND
+        # the FEC fallback hit a dead House ID; users saw "—" on his card
+        # all day. 0.25h keeps the upstream-shield benefit without the rot.
+        ai_cache.set(cache_key, result, ttl_hours=0.25)
         return result
 
     funding = whoboughtmyrep.normalize_rep_funding(wbmr)
@@ -668,7 +674,21 @@ async def get_full_profile(bioguide_id: str):
             "contact_form": leg.get("contact_form", ""),
         },
     }
-    ai_cache.set(cache_key, result, ttl_hours=6)
+    # Don't pin a 6h cache row if WBMR served an obviously incomplete record.
+    # Signature: WBMR returned *something* (so we exited the "not wbmr" branch
+    # that fills from FEC), but top_industries is empty despite a non-trivial
+    # total_raised. Real cause seen in the wild: Murphy got cached with
+    # total_raised=$12.5M, top_industries=[], pac_total=$0 — but the next live
+    # call returned $27.8M, 10 industries, $62K PAC. WBMR briefly served a
+    # stripped record and the 6h TTL pinned it. Skip the write so the next
+    # request retries upstream instead.
+    wbmr_looks_thin = (
+        wbmr is not None
+        and not funding.get("top_industries")
+        and (funding.get("total_raised") or 0) > 100_000
+    )
+    if not wbmr_looks_thin:
+        ai_cache.set(cache_key, result, ttl_hours=6)
     return result
 
 

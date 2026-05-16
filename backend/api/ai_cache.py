@@ -58,8 +58,9 @@ def get(key: str):
         return None
 
 
-def set(key: str, value, ttl_hours: int = 168) -> None:
-    """Store `value` (JSON-serializable) under `key` with a TTL. Default 7 days."""
+def set(key: str, value, ttl_hours: float = 168) -> None:
+    """Store `value` (JSON-serializable) under `key` with a TTL. Default 7 days.
+    Fractional hours OK (e.g. 0.25 for a 15-minute negative-cache window)."""
     try:
         _ensure_table()
         expires_at = _utcnow() + timedelta(hours=ttl_hours)
