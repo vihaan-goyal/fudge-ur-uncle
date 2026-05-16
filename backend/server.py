@@ -10,6 +10,9 @@ Docs: http://localhost:8000/docs
 
 import asyncio
 import json
+import os
+import traceback
+from contextlib import asynccontextmanager
 from hashlib import sha1
 from fastapi import FastAPI, Query, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,38 +27,6 @@ from api.auth import router as auth_router, get_current_user
 from api.upcoming_votes_router import router as upcoming_votes_router
 import config
 
-app = FastAPI(
-    title="Fudge Ur Uncle API",
-    description="Politician accountability tracker.",
-    version="0.1.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    # Auth is bearer-token (Authorization header), not cookies — credentials=True
-    # combined with origins=["*"] is rejected by browsers per the CORS spec.
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(alerts_router)
-app.include_router(auth_router)
-app.include_router(upcoming_votes_router)
-
-
-@app.on_event("startup")
-def _ensure_alerts_schema() -> None:
-    # Idempotent — creates the alerts tables if a fresh volume mounted without
-    # them. Without this, /api/alerts 503s with "Run: python -m backend.db..."
-    # until someone shells in and runs it manually.
-    try:
-        import db
-        db.init_db()
-    except Exception as e:
-        print(f"[startup] init_db skipped: {e}")
-
 
 # ============================================================
 # BACKGROUND REFRESH
@@ -64,9 +35,6 @@ def _ensure_alerts_schema() -> None:
 # the web reads. Gated on FUU_BACKGROUND_REFRESH=1 so dev `python
 # server.py` doesn't hammer external APIs.
 # ============================================================
-
-import os  # noqa: E402  (kept near the background-task block on purpose)
-import traceback  # noqa: E402
 
 _REFRESH_INTERVAL_SECONDS = int(os.environ.get("FUU_REFRESH_INTERVAL_SECONDS", "21600"))   # 6h
 _DONATIONS_INTERVAL_SECONDS = int(os.environ.get("FUU_DONATIONS_INTERVAL_SECONDS", "86400"))  # 24h
@@ -134,18 +102,47 @@ async def _donations_loop() -> None:
         await asyncio.sleep(_DONATIONS_INTERVAL_SECONDS)
 
 
-@app.on_event("startup")
-async def _start_background_tasks() -> None:
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    try:
+        import db
+        db.init_db()
+    except Exception as e:
+        print(f"[startup] init_db skipped: {e}")
+
     if os.environ.get("FUU_BACKGROUND_REFRESH", "0") != "1":
         print("[startup] background refresh DISABLED (set FUU_BACKGROUND_REFRESH=1 to enable)")
-        return
-    asyncio.create_task(_refresh_loop())
-    asyncio.create_task(_donations_loop())
-    print(
-        f"[startup] background tasks scheduled: "
-        f"refresh every {_REFRESH_INTERVAL_SECONDS}s, "
-        f"donations every {_DONATIONS_INTERVAL_SECONDS}s"
-    )
+    else:
+        asyncio.create_task(_refresh_loop())
+        asyncio.create_task(_donations_loop())
+        print(
+            f"[startup] background tasks scheduled: "
+            f"refresh every {_REFRESH_INTERVAL_SECONDS}s, "
+            f"donations every {_DONATIONS_INTERVAL_SECONDS}s"
+        )
+
+    yield
+
+
+app = FastAPI(
+    title="Fudge Ur Uncle API",
+    description="Politician accountability tracker.",
+    version="0.1.0",
+    lifespan=_lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(alerts_router)
+app.include_router(auth_router)
+app.include_router(upcoming_votes_router)
+
 
 # ============================================================
 # HEALTH
