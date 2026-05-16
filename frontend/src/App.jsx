@@ -418,6 +418,7 @@ const AssistantScreen = ({
   sending, setSending,
   errorMsg, setErrorMsg,
   onClearChat,
+  isGuest,
 }) => {
   const submit = async (overrideText) => {
     const text = (overrideText ?? input).trim();
@@ -455,6 +456,36 @@ const AssistantScreen = ({
     if (screen === "dashboard") return cc.dashboard;
     return null;
   })();
+
+  // Guest gate — chat hits an auth-required endpoint, so render a sign-up
+  // CTA instead of the input. Keeps header + NavBar so the user can
+  // navigate away. Temp guest-mode footprint; remove this branch when the
+  // feature is pulled.
+  if (isGuest) {
+    return (
+      <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+        <StatusBar offline={offline} />
+        <div style={{ ...s.header, paddingTop: 12 }}>
+          <h1 style={{ ...s.headerTitle, fontSize: 18 }}>{COPY.assistant.title}</h1>
+          <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{COPY.assistant.subtitle}</div>
+        </div>
+        <div style={{ ...s.body, paddingBottom: 70 }}>
+          <div style={{ ...s.card, textAlign: "center", padding: 18 }}>
+            <div style={{ fontSize: 28, marginBottom: 6 }} aria-hidden="true">✨</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Sign up to chat with Mamu</div>
+            <div style={{ fontSize: 12, color: colors.textMuted, lineHeight: 1.45, marginBottom: 14 }}>
+              Mamu can break down a bill, a rep, or how the system works. Create an account to save your chats and personalize the feed.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ ...s.btn("primary"), flex: 1 }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Sign Up</button>
+              <button style={{ ...s.btn("outline"), flex: 1 }} onClick={() => onNav(SCREENS.LOGIN)}>Log In</button>
+            </div>
+          </div>
+        </div>
+        <NavBar active={SCREENS.ASSISTANT} onNav={onNav} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
@@ -779,7 +810,7 @@ const CreateAccountScreen = ({ onNav, onSignedIn, offline }) => {
 };
 
 // 3. LOGIN
-const LoginScreen = ({ onNav, onSignedIn, offline }) => {
+const LoginScreen = ({ onNav, onSignedIn, offline, onEnterGuest }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
@@ -826,6 +857,15 @@ const LoginScreen = ({ onNav, onSignedIn, offline }) => {
             New here?{" "}
             <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Create an account</span>
           </div>
+          {/* Temporary guest mode — handy for handing the phone to someone
+              for a quick demo. User asked for this to be easy to remove
+              later; the link + onEnterGuest prop are the whole footprint. */}
+          {onEnterGuest && (
+            <div style={{ textAlign: "center", fontSize: 11, color: colors.textMuted, fontFamily: fontSans, marginTop: 4 }}>
+              Just looking?{" "}
+              <span style={{ color: colors.accent, cursor: "pointer", textDecoration: "underline" }} onClick={onEnterGuest}>Continue as guest</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2643,7 +2683,19 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <div style={s.section}>
           <div style={s.sectionTitle}>Account</div>
-          {currentUser ? (
+          {currentUser?.is_guest ? (
+            <div style={s.card}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Browsing as guest</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginTop: 2, lineHeight: 1.4 }}>
+                Your state + issues are saved on this device only. Sign up to chat with Mamu and persist your preferences.
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button style={{ ...s.btn("primary"), flex: 1 }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>Sign Up</button>
+                <button style={{ ...s.btn("outline"), flex: 1 }} onClick={() => onNav(SCREENS.LOGIN)}>Log In</button>
+              </div>
+              <button style={{ ...s.btn("outline"), marginTop: 8 }} onClick={onSignOut}>Exit guest mode</button>
+            </div>
+          ) : currentUser ? (
             <div style={s.card}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{currentUser.name}</div>
               <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginTop: 2 }}>{currentUser.email}</div>
@@ -3447,7 +3499,30 @@ export default function App() {
     if (user.issues && user.issues.length > 0) setUserIssues(user.issues);
   };
 
+  // Guest mode — anonymous, no auth token, no DB row. Lets a viewer poke
+  // around the app for a demo without creating an account. Anything that
+  // hits an auth-required endpoint (Mamu chat, saving preferences) is
+  // gated client-side. Marked temporary by the user — easy to rip later
+  // by deleting handleEnterGuest, the LoginScreen link, and the
+  // `is_guest` branches in handleSave*/handleSignOut and AssistantScreen.
+  const handleEnterGuest = () => {
+    setCurrentUser({
+      name: "Guest",
+      state: "CT",
+      issues: ["healthcare", "environment"],
+      is_guest: true,
+    });
+    setUserState("CT");
+    setUserIssues(["healthcare", "environment"]);
+    setCurrentScreen(SCREENS.DASHBOARD);
+  };
+
   const handleSaveState = async (newState) => {
+    if (currentUser?.is_guest) {
+      setUserState(newState);
+      setCurrentUser({ ...currentUser, state: newState });
+      return;
+    }
     if (currentUser && auth.getToken()) {
       const res = await api.updateMe({ state: newState });
       setCurrentUser(res.user);
@@ -3459,6 +3534,11 @@ export default function App() {
   };
 
   const handleSaveIssues = async (newIssues) => {
+    if (currentUser?.is_guest) {
+      setUserIssues(newIssues);
+      setCurrentUser({ ...currentUser, issues: newIssues });
+      return;
+    }
     if (currentUser && auth.getToken()) {
       const res = await api.updateMe({ issues: newIssues });
       setCurrentUser(res.user);
@@ -3470,7 +3550,11 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
-    try { await api.logout(); } catch { /* ignore */ }
+    // Guest sign-out is purely local — no token, no /logout call. Real
+    // sign-out hits the API to invalidate the session row.
+    if (!currentUser?.is_guest) {
+      try { await api.logout(); } catch { /* ignore */ }
+    }
     auth.clear();
     setCurrentUser(null);
     setUserIssues(["healthcare", "environment"]);
@@ -3481,6 +3565,11 @@ export default function App() {
   };
 
   const handleDeleteAccount = async () => {
+    // Guests have nothing to delete — exit straight to splash.
+    if (currentUser?.is_guest) {
+      handleSignOut();
+      return;
+    }
     if (!window.confirm("Permanently delete your account? This can't be undone.")) return;
     const password = window.prompt("Confirm your password to delete your account:");
     if (!password) return;
@@ -3523,7 +3612,7 @@ export default function App() {
     switch (currentScreen) {
       case SCREENS.SPLASH: return <SplashScreen {...common} />;
       case SCREENS.CREATE_ACCOUNT: return <CreateAccountScreen {...common} onSignedIn={handleSignedIn} />;
-      case SCREENS.LOGIN: return <LoginScreen {...common} onSignedIn={handleSignedIn} />;
+      case SCREENS.LOGIN: return <LoginScreen {...common} onSignedIn={handleSignedIn} onEnterGuest={handleEnterGuest} />;
       case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} currentUser={currentUser} onSaveIssues={handleSaveIssues} />;
       case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} currentUser={currentUser} userIssues={userIssues} />;
       case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} onSelectStateRep={selectStateRep} userState={userState} />;
@@ -3557,6 +3646,7 @@ export default function App() {
         errorMsg={assistantError}
         setErrorMsg={setAssistantError}
         onClearChat={() => { setAssistantMessages([]); setAssistantInput(""); setAssistantError(""); }}
+        isGuest={currentUser?.is_guest === true}
       />;
       default: return <SplashScreen {...common} />;
     }
