@@ -1803,18 +1803,18 @@ const VotingHistoryScreen = ({ onNav, profileData }) => {
       <StatusBar />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>Voting Record</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>{COPY.profile.votingHistory.title}</h2>
         {cats.length > 1 && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
             {cats.map((c) => (
               <button key={c} style={s.chip(filter === c)} onClick={() => setFilter(c)}>
-                {c === "all" ? "All" : c.charAt(0).toUpperCase() + c.slice(1)}
+                {c === "all" ? COPY.profile.votingHistory.chipAll : friendlyCategory(c)}
               </button>
             ))}
           </div>
         )}
         {filtered.length === 0 && (
-          <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>No votes match this filter.</p>
+          <p style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{COPY.profile.votingHistory.emptyFilter}</p>
         )}
         {filtered.map((v, i) => (
           <div key={i} style={{ display: "flex", gap: 12, marginBottom: 12, position: "relative", paddingLeft: 16 }}>
@@ -1826,7 +1826,7 @@ const VotingHistoryScreen = ({ onNav, profileData }) => {
                 <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>{v.date}</span>
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{v.title}</div>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{v.bill} · {v.category || "general"}</div>
+              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{v.bill} · {friendlyCategoryInline(v.category) || "general"}</div>
             </div>
           </div>
         ))}
@@ -1931,26 +1931,24 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Voting Positions</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.profile.promiseScoring.title}</h2>
         <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
-          AI-analyzed from actual votes and sponsored legislation
+          {COPY.profile.promiseScoring.subtitle}
         </div>
 
-        {loading && <Loading label="Analyzing voting record…" />}
+        {loading && <Loading label={COPY.profile.promiseScoring.analyzingLoad} />}
 
         {!loading && !aiAvailable && (
           <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>OpenAI key not configured</div>
-            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-              Add <span style={{ fontFamily: font }}>OPENAI_API_KEY</span> to <span style={{ fontFamily: font }}>backend/.env</span> to enable AI stance analysis.
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>{COPY.profile.promiseScoring.aiKeyMissingTitle}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>{COPY.profile.promiseScoring.aiKeyMissingBody}</div>
           </div>
         )}
 
         {!loading && aiAvailable && (
           <>
-            <div style={s.sectionTitle}>Stated Promises vs Voting Record</div>
-            {promiseLoading && <Loading label="Scraping official site…" />}
+            <div style={s.sectionTitle}>{COPY.profile.promiseScoring.promisesSection}</div>
+            {promiseLoading && <Loading label={COPY.profile.promiseScoring.scrapingLoad} />}
             {!promiseLoading && promises && promises.length > 0 && (
               <>
                 {promises.map(renderPromiseCard)}
@@ -1965,16 +1963,20 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
                         borderRadius: 4, padding: "2px 6px",
                       }}>{PROMISE_RUNG_STYLE[promiseSourceRung].label}</span>
                     )}
-                    <span>Promises extracted from <a href={promiseSourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{promiseSourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.</span>
+                    <span>
+                      {COPY.profile.promiseScoring.promisesSourceNotePre}
+                      <a href={promiseSourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>
+                        {promiseSourceUrl.replace(/^https?:\/\//, "")}
+                      </a>
+                      {COPY.profile.promiseScoring.promisesSourceNotePost}
+                    </span>
                   </div>
                 )}
               </>
             )}
             {!promiseLoading && (!promises || promises.length === 0) && (
               <div style={{ ...s.card, marginBottom: 16 }}>
-                <div style={{ fontSize: 12, color: colors.textMuted }}>
-                  No public promises found. We tried the rep's official site, Wikipedia, and Ballotpedia — none had enough stated-position text to extract.
-                </div>
+                <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.profile.promiseScoring.promisesEmpty}</div>
               </div>
             )}
           </>
@@ -1982,23 +1984,23 @@ const PromiseScoringScreen = ({ onNav, bioguideId, profileData }) => {
 
         {!loading && aiAvailable && stances && stances.length > 0 && (
           <>
-            <div style={s.sectionTitle}>Key Positions ({stances.length})</div>
+            <div style={s.sectionTitle}>{COPY.profile.promiseScoring.keyPositions(stances.length)}</div>
             {stances.map(renderStanceCard)}
             <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
-              Scores reflect voting record consistency, not campaign promises. Analysis powered by GPT-4o-mini.
+              {COPY.profile.promiseScoring.scoresNote}
             </div>
           </>
         )}
 
         {!loading && aiAvailable && stances && stances.length === 0 && (
           <div style={{ ...s.card }}>
-            <div style={{ fontSize: 12, color: colors.textMuted }}>Not enough voting data to analyze positions yet.</div>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.profile.promiseScoring.notEnoughData}</div>
           </div>
         )}
 
         {!loading && aiAvailable && !stances && !offline && (
           <div style={{ ...s.card }}>
-            <div style={{ fontSize: 12, color: colors.textMuted }}>Could not load stance analysis. Try again later.</div>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>{COPY.profile.promiseScoring.loadError}</div>
           </div>
         )}
       </div>
@@ -2024,8 +2026,8 @@ const TimelineScreen = ({ onNav, profileData }) => {
       <StatusBar />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>Activity Timeline</h2>
-        {events.length === 0 && <p style={{ fontSize: 11, color: colors.textMuted }}>No recent activity tracked.</p>}
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 12 }}>{COPY.profile.timeline.title}</h2>
+        {events.length === 0 && <p style={{ fontSize: 11, color: colors.textMuted }}>{COPY.profile.timeline.empty}</p>}
         {events.map((ev, i) => (
           <div key={i} style={{ display: "flex", gap: 12, marginBottom: 14, paddingLeft: 16, position: "relative" }}>
             <div style={{ position: "absolute", left: 0, top: 4, width: 10, height: 10, borderRadius: "50%", background: colors.surfaceLight, border: `2px solid ${ev.type === "voting" ? colors.blue : colors.green}` }} />
@@ -2998,10 +3000,10 @@ const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {[
-            { icon: "vote", label: "Voting Record", sub: "Recent roll-call votes", screen: SCREENS.STATE_REP_VOTING },
-            { icon: "star", label: "Voting Positions", sub: "AI stance analysis", screen: SCREENS.STATE_REP_STANCES },
-            { icon: "megaphone", label: "Stated Promises", sub: "Site-scraped positions vs. votes", screen: SCREENS.STATE_REP_PROMISES },
-            { icon: "alert", label: "Alerts", sub: "Donor industry x upcoming votes", screen: SCREENS.STATE_REP_ALERTS },
+            { icon: "vote",      ...COPY.stateProfile.tiles.voting,   screen: SCREENS.STATE_REP_VOTING },
+            { icon: "star",      ...COPY.stateProfile.tiles.stances,  screen: SCREENS.STATE_REP_STANCES },
+            { icon: "megaphone", ...COPY.stateProfile.tiles.promises, screen: SCREENS.STATE_REP_PROMISES },
+            { icon: "alert",     ...COPY.stateProfile.tiles.alerts,   screen: SCREENS.STATE_REP_ALERTS },
           ].map((item) => (
             <div
               key={item.label}
@@ -3024,7 +3026,7 @@ const StateRepProfileScreen = ({ onNav, peopleId, onSetStateRepData }) => {
 
         {sponsoredCount > 0 && (
           <div style={s.section}>
-            <div style={s.sectionTitle}>Recent Sponsored Bills</div>
+            <div style={s.sectionTitle}>{COPY.stateProfile.recentSponsored}</div>
             {(data.sponsored_bills || []).slice(0, 5).map((b, i) => (
               <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${colors.border}` }}>
                 <div style={{ fontSize: 12, fontWeight: 600 }}>{b.number}</div>
@@ -3058,18 +3060,18 @@ const StateRepVotingScreen = ({ onNav, peopleId, stateRepData }) => {
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Voting Record</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.stateProfile.voting.title}</h2>
         <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 12 }}>
-          Recent roll calls on sponsored legislation
+          {COPY.stateProfile.voting.subtitle}
         </div>
 
-        {loading && <Loading label="Pulling roll calls…" />}
+        {loading && <Loading label={COPY.stateProfile.voting.loading} />}
 
         {!loading && cats.length > 1 && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
             {cats.map((c) => (
               <button key={c} style={s.chip(filter === c)} onClick={() => setFilter(c)}>
-                {c === "all" ? "All" : c}
+                {c === "all" ? COPY.profile.votingHistory.chipAll : friendlyCategory(c)}
               </button>
             ))}
           </div>
@@ -3078,8 +3080,7 @@ const StateRepVotingScreen = ({ onNav, peopleId, stateRepData }) => {
         {!loading && filtered.length === 0 && (
           <div style={{ ...s.card }}>
             <div style={{ fontSize: 12, color: colors.textMuted, lineHeight: 1.5 }}>
-              No roll-call votes found on this legislator's recent sponsored bills.
-              State-level votes aren't always recorded by Legiscan — this can be normal.
+              {COPY.stateProfile.voting.empty}
             </div>
           </div>
         )}
@@ -3094,7 +3095,7 @@ const StateRepVotingScreen = ({ onNav, peopleId, stateRepData }) => {
                 <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: font }}>{v.date}</span>
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{v.title}</div>
-              {v.category && <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{v.category}</div>}
+              {v.category && <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>{friendlyCategoryInline(v.category)}</div>}
             </div>
           </div>
         ))}
@@ -3143,28 +3144,26 @@ const StateRepStancesScreen = ({ onNav, peopleId, stateRepData }) => {
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Voting Positions</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.stateProfile.stances.title}</h2>
         <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
-          AI-analyzed from actual votes and sponsored legislation
+          {COPY.stateProfile.stances.subtitle}
         </div>
 
-        {loading && <Loading label="Analyzing voting record…" />}
+        {loading && <Loading label={COPY.stateProfile.stances.loading} />}
 
         {!loading && !aiAvailable && (
           <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>OpenAI key not configured</div>
-            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-              Add <span style={{ fontFamily: font }}>OPENAI_API_KEY</span> to <span style={{ fontFamily: font }}>backend/.env</span> to enable AI stance analysis.
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>{COPY.stateProfile.stances.aiKeyMissingTitle}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>{COPY.stateProfile.stances.aiKeyMissingBody}</div>
           </div>
         )}
 
         {!loading && aiAvailable && stances && stances.length > 0 && (
           <>
-            <div style={s.sectionTitle}>Key Positions ({stances.length})</div>
+            <div style={s.sectionTitle}>{COPY.stateProfile.stances.keyPositions(stances.length)}</div>
             {stances.map(renderStanceCard)}
             <div style={{ fontSize: 10, color: colors.textMuted, fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
-              Scores reflect voting record consistency, not campaign promises. Analysis powered by GPT-4o-mini.
+              {COPY.stateProfile.stances.scoresNote}
             </div>
           </>
         )}
@@ -3172,7 +3171,7 @@ const StateRepStancesScreen = ({ onNav, peopleId, stateRepData }) => {
         {!loading && aiAvailable && (!stances || stances.length === 0) && (
           <div style={{ ...s.card }}>
             <div style={{ fontSize: 12, color: colors.textMuted }}>
-              Not enough voting data to analyze positions yet. State-level vote records are thinner than federal.
+              {COPY.stateProfile.stances.notEnoughData}
             </div>
           </div>
         )}
@@ -3230,26 +3229,24 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.STATE_REP_PROFILE)} label={name} />
-        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>Stated Promises</h2>
+        <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 4 }}>{COPY.stateProfile.promises.title}</h2>
         <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font, marginBottom: 14 }}>
-          Site-scraped positions scored against voting record
+          {COPY.stateProfile.promises.subtitle}
         </div>
 
-        {loading && <Loading label="Scraping public bio and scoring…" />}
+        {loading && <Loading label={COPY.stateProfile.promises.loading} />}
 
         {!loading && !aiAvailable && (
           <div style={{ ...s.card, background: colors.yellowDim, borderColor: colors.yellow + "44" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>OpenAI key not configured</div>
-            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-              Add <span style={{ fontFamily: font }}>OPENAI_API_KEY</span> to <span style={{ fontFamily: font }}>backend/.env</span> to enable promise scoring.
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.yellow, marginBottom: 6 }}>{COPY.stateProfile.promises.aiKeyMissingTitle}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>{COPY.stateProfile.promises.aiKeyMissingBody}</div>
           </div>
         )}
 
         {!loading && aiAvailable && !scraped && (
           <div style={{ ...s.card }}>
             <div style={{ fontSize: 12, color: colors.textMuted, lineHeight: 1.5 }}>
-              No public bio page with enough policy text was found. We checked Ballotpedia and Wikipedia — state legislators often don't publish stated positions online.
+              {COPY.stateProfile.promises.notScraped}
             </div>
           </div>
         )}
@@ -3268,7 +3265,13 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
                     borderRadius: 4, padding: "2px 6px",
                   }}>{sourceChip.label}</span>
                 )}
-                <span>Promises extracted from <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>{sourceUrl.replace(/^https?:\/\//, "")}</a>, scored against recent votes by GPT-4o-mini.</span>
+                <span>
+                  {COPY.stateProfile.promises.sourceNotePre}
+                  <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ color: colors.accent }}>
+                    {sourceUrl.replace(/^https?:\/\//, "")}
+                  </a>
+                  {COPY.stateProfile.promises.sourceNotePost}
+                </span>
               </div>
             )}
           </>
@@ -3277,7 +3280,7 @@ const StateRepPromisesScreen = ({ onNav, peopleId, stateRepData }) => {
         {!loading && aiAvailable && scraped && (!promises || promises.length === 0) && (
           <div style={{ ...s.card }}>
             <div style={{ fontSize: 12, color: colors.textMuted }}>
-              Bio page was readable but no clear stated positions were extracted.
+              {COPY.stateProfile.promises.empty}
             </div>
           </div>
         )}
