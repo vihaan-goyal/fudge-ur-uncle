@@ -222,8 +222,14 @@ async def get_rep_funding_lite(bioguide_id: str):
         # WBMR has no data - try FEC as fallback
         leg = await legislators.get_by_bioguide(bioguide_id)
         if leg and leg.get("fec_ids"):
-            fec_totals = await openfec.get_candidate_totals(leg["fec_ids"][0])
-            if fec_totals:
+            # Reps with prior House service have their old House FEC ID listed
+            # first; get_candidate_totals filters by current cycle and returns
+            # {} for it. Probe every fec_id in parallel and pick the first one
+            # with real receipts. Same pattern as get_full_profile below.
+            fec_ids = leg["fec_ids"]
+            all_totals = await asyncio.gather(*[openfec.get_candidate_totals(fid) for fid in fec_ids])
+            fec_totals = next((t for t in all_totals if t.get("total_receipts")), all_totals[0])
+            if fec_totals.get("total_receipts"):
                 result = {
                     "bioguide_id": bioguide_id,
                     "total_raised": fec_totals.get("total_receipts", 0),
@@ -300,8 +306,16 @@ async def get_rep_detail(bioguide_id: str):
     funding = {}
     top_contributors = []
     if fec_ids:
-        funding = await openfec.get_candidate_totals(fec_ids[0])
-        top_contributors = await openfec.get_top_contributors(fec_ids[0])
+        all_totals = await asyncio.gather(*[openfec.get_candidate_totals(fid) for fid in fec_ids])
+        active_id = fec_ids[0]
+        for fid, totals in zip(fec_ids, all_totals):
+            if totals.get("total_receipts"):
+                funding = totals
+                active_id = fid
+                break
+        else:
+            funding = all_totals[0]
+        top_contributors = await openfec.get_top_contributors(active_id)
 
     votes = await congress_gov.get_member_votes(bioguide_id, govtrack_id=leg.get("govtrack_id"))
     sponsored = await congress_gov.get_sponsored_bills(bioguide_id, limit=5)
@@ -436,10 +450,16 @@ async def get_funding_detail(bioguide_id: str):
     fec_totals = {}
     top_employers = []
     if fec_ids:
-        fec_totals, top_employers = await asyncio.gather(
-            openfec.get_candidate_totals(fec_ids[0]),
-            openfec.get_top_employers(fec_ids[0]),
-        )
+        all_totals = await asyncio.gather(*[openfec.get_candidate_totals(fid) for fid in fec_ids])
+        active_id = fec_ids[0]
+        for fid, totals in zip(fec_ids, all_totals):
+            if totals.get("total_receipts"):
+                fec_totals = totals
+                active_id = fid
+                break
+        else:
+            fec_totals = all_totals[0]
+        top_employers = await openfec.get_top_employers(active_id)
 
     wbmr_data = await whoboughtmyrep.get_rep_by_bioguide(bioguide_id)
 

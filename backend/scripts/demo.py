@@ -97,7 +97,12 @@ async def main():
     leg = await legislators.get_by_bioguide("M001169")
     if leg:
         fec_ids = leg.get("fec_ids", [])
-        fec_totals = await openfec.get_candidate_totals(fec_ids[0]) if fec_ids else {}
+        fec_totals = {}
+        if fec_ids:
+            # Murphy's old House FEC ID (H6CT05124) is listed first; probe every
+            # ID and pick the one with real receipts instead of fec_ids[0].
+            all_totals = await asyncio.gather(*[openfec.get_candidate_totals(fid) for fid in fec_ids])
+            fec_totals = next((t for t in all_totals if t.get("total_receipts")), all_totals[0])
 
         profile = {
             "name": leg["name"],
