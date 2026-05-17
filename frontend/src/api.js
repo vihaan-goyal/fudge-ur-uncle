@@ -85,11 +85,23 @@ export const api = {
 
   me: () => apiRequest("/api/auth/me"),
 
-  updateMe: ({ name, state, issues }) =>
-    apiRequest("/api/auth/me", { method: "PATCH", body: { name, state, issues } }),
+  updateMe: ({ name, state, issues, eligibility, notify_alerts }) =>
+    apiRequest("/api/auth/me", { method: "PATCH", body: { name, state, issues, eligibility, notify_alerts } }),
 
   deleteAccount: (password) =>
     apiRequest("/api/auth/me", { method: "DELETE", body: { password } }),
+
+  verifyEmail: (token) =>
+    apiRequest("/api/auth/verify-email", { method: "POST", body: { token } }),
+
+  resendVerification: () =>
+    apiRequest("/api/auth/resend-verification", { method: "POST" }),
+
+  forgotPassword: (email) =>
+    apiRequest("/api/auth/forgot-password", { method: "POST", body: { email } }),
+
+  resetPassword: (token, password) =>
+    apiRequest("/api/auth/reset-password", { method: "POST", body: { token, password } }),
 
   getRepsByState: (state) =>
     apiRequest(`/api/reps/by-state/${encodeURIComponent(state)}`),

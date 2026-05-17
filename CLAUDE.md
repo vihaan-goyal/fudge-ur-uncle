@@ -61,8 +61,12 @@ cd frontend && npm test
 - `WHOBOUGHTMYREP_API_KEY` — industry-attributed funding
 - `LEGISCAN_API_KEY` — state legislators (30k/mo + 1 req/sec, cached)
 - `FTM_API_KEY` — FollowTheMoney state campaign finance
+- `RESEND_API_KEY` — transactional email (verify, password reset, urgent alerts). Missing → links logged to stdout instead of sent.
+- `RESEND_FROM` — verified sender, e.g. `Fudge Ur Uncle <onboarding@resend.dev>`
+- `RESEND_WEBHOOK_SECRET` — Resend dashboard → Webhooks → reveal. Required to receive bounce/complaint events; unset → `/api/webhooks/resend` returns 503.
+- `FRONTEND_URL` — origin used in email links; defaults to `http://localhost:5173`
 
-`GET /` reports all 7 keys — keep in sync when adding env-dependent features.
+`GET /` reports all 9 keys — keep in sync when adding env-dependent features.
 
 ## Architecture
 
@@ -76,11 +80,11 @@ cd frontend && npm test
 
 **Category display:** always use `friendlyCategory()` / `friendlyCategoryInline()` from `copy.js` — never raw keys or `charAt(0).toUpperCase()`.
 
-**Civics glossary:** `GLOSSARY` in `copy.js` (term key → `{label, body}`). Wrap user-visible jargon with `<TermTip term="pac">PAC</TermTip>` — dotted underline + tap-to-define popover. Popover portals to `document.body` with `position: fixed` because rep cards use `transform` (would otherwise convert nested `position: fixed` into card-relative `absolute`). Scrim stops `click`/`pointerdown`/`mousedown`/`touchstart` so the underlying button doesn't fire on dismiss.
+**Civics glossary:** `GLOSSARY` in `copy.js` (term key → `{label, body}`). Wrap user-visible jargon with `<TermTip term="pac">PAC</TermTip>` — dotted underline + tap-to-define popover. Popover portals to `document.body` with `position: fixed` because rep cards use `transform` (would otherwise convert nested `position: fixed` into card-relative `absolute`). Scrim stops `click`/`pointerdown`/`mousedown`/`touchstart` so the underlying button doesn't fire on dismiss. TermTip wraps both bare words and existing children — to wrap a string sourced from `COPY` (which is plain-text-only), inline the JSX in `App.jsx` and drop the COPY entry. The Events listTitle was migrated this way for "committee hearings".
 
 **Dashboard** targets new voters / immigrants: quick actions → Coming up → Your reps. "Coming up" calls `/api/upcoming-votes`, renders first 3. Personalized by user issues when signed in.
 
-**Eligibility-aware onboarding:** `SCREENS.ELIGIBILITY` sits between Create Account and Issue Select. 4 keys: `citizen` / `naturalizing` / `green_card` / `not_sure`. Stored on `currentUser.eligibility` (local-only — resets on logout, no backend column yet). Drives three surfaces: `COPY.learnToVote.byEligibility[key]` swaps the Learn-to-Vote intro + resources and suppresses the state-registration card for non-citizens; the dashboard's "How to vote" tile re-labels via `quickActions.votingGuideByEligibility`; `assistantContext.eligibility` reaches the backend, where `_ELIGIBILITY_NOTES` in `assistant_chat.py` prepends a framing line to Mamu's system message. Undefined eligibility (accounts pre-dating this) falls back to the citizen view — don't add strict null-guards at the read sites.
+**Eligibility-aware onboarding:** `SCREENS.ELIGIBILITY` sits between Create Account and Issue Select. 4 keys: `citizen` / `naturalizing` / `green_card` / `not_sure`. Persists on `users.eligibility`; `handleSetEligibility` calls `PATCH /api/auth/me` for signed-in users and stays local-only for guests (no token, no DB row). Server validates against `ELIGIBILITY_VALUES` in `auth.py` — unknown keys 400. Drives three surfaces: `COPY.learnToVote.byEligibility[key]` swaps the Learn-to-Vote intro + resources and suppresses the state-registration card for non-citizens; the dashboard's "How to vote" tile re-labels via `quickActions.votingGuideByEligibility`; `assistantContext.eligibility` reaches the backend, where `_ELIGIBILITY_NOTES` in `assistant_chat.py` prepends a framing line to Mamu's system message. Undefined eligibility (accounts pre-dating this column) falls back to the citizen view — don't add strict null-guards at the read sites.
 
 **Warm-card surfaces** (`ComingUpCard`, `RepCardShell`, `QuickActionButton`) bypass `s.card` — white surface, accent-tinted shadow. `ComingUpCard` outer is a non-interactive `<div>`; each row is its own `<button>` (global CSS press feedback, no JS state). Don't mix warm-card and cream `s.card` on the same surface.
 
@@ -134,7 +138,17 @@ cd frontend && npm test
 
 **Pipeline** runs federal and state independently (`_run_for_jurisdiction` per actor_type). After scoring, `_sweep_stale_alerts` deletes non-dismissed alerts not refreshed this run. Dismissed alerts kept. **State calibration:** `proxy_donation_r=0.4`, `no_baseline_a=0.0` (FTM lifetime stamps saturate R; sparse pools can't clear baseline). Env-overridable: `ALERTS_PROXY_DONATION_R`, `ALERTS_NO_BASELINE_A_HONEST`.
 
-**Auth:** bcrypt + opaque 32-byte tokens, 30-day TTL. `get_current_user_optional` for personalize-but-serve-anon endpoints. Hardened: 8-fail/15min throttle, constant-time login, trivial-password reject. Missing: email verification, password reset (need SMTP).
+**Auth:** bcrypt + opaque 32-byte tokens, 30-day TTL. `get_current_user_optional` for personalize-but-serve-anon endpoints. Hardened: 8-fail/15min throttle, constant-time login, trivial-password reject.
+
+**Email verification + reset:** transactional mail via Resend (`api/email_sender.py`). When `RESEND_API_KEY` is unset the sender logs the link to stdout instead of failing — keeps signup working in dev. `RESEND_FROM` must be a verified sender; `FRONTEND_URL` builds the link the email points to (the SPA reads `?verify=` / `?reset=` from `window.location.search` on boot, then `history.replaceState`'s the token out of the URL).
+- **Soft gate.** `users.email_verified` (default 0). Login + every endpoint still works unverified; the dashboard shows a banner with a Resend button until the user clicks the link.
+- **One-shot tokens** in `email_verifications` / `password_resets` (24h / 60min TTLs). Issuing a new token for a user deletes the prior one — last link wins. Redeem also deletes, even on expired hits, so retries can't keep poking a stale row.
+- **Throttle.** `_email_throttle` bucket — 5 sends per (IP, action, key) per hour. Resend keys on `user_id`, forgot-password keys on `email`. Forgot-password always 200s + same payload (no enumeration): unknown email, invalid email, throttled email all look identical. Tunable via `FUU_EMAIL_THROTTLE_MAX` / `FUU_EMAIL_THROTTLE_WINDOW_SECONDS`.
+- **Reset side-effect.** `/api/auth/reset-password` deletes every row in `sessions` for the user — convention is "password change kicks all devices". Re-validates against the password-strength list (same as signup), so a reset can't downgrade to `password123`.
+
+**Urgent-alert email notifications:** `api/alert_notifications.py`. Called at the tail of `alerts/refresh.run()` (not inside `run_pipeline` so the pipeline test suite stays email-free). Matches users to alerts on `state` (federal via `legislators-current` lookup, state via `scheduled_votes.state_code`) + `category` ∈ `user.issues`, gated on `email_verified=1`, `notify_alerts=1`, `email_bouncing=0`. Dedupe table `alert_email_sends(alert_id, user_id)` with FK CASCADE — INSERT OR IGNORE keeps repeated refresh ticks idempotent, and stale-swept alerts free their slot. Failed sends still write `delivered=0` so a dead address doesn't keep getting retried every 6h.
+
+**Resend webhook:** `POST /api/webhooks/resend` (`api/webhooks_resend.py`). Manual Svix-style HMAC verification (no `svix` dep) — accepts both `webhook-*` and `svix-*` header names. `RESEND_WEBHOOK_SECRET` is required to verify; unset = 503 (fail closed). On `email.bounced` / `email.complained`: `notify_alerts=0` + `email_bouncing=1` for the recipient's user row. Other event types acknowledged with 200 so Resend stops retrying. Timestamp skew clamped to ±5 min as replay protection.
 
 **Guest mode (temporary):** `handleEnterGuest` sets `currentUser.is_guest=true`, no token written. All auth handlers bypass API. Mamu shows sign-up CTA. Rollback: grep `is_guest`/`isGuest`/`handleEnterGuest`/`onEnterGuest`.
 
@@ -172,4 +186,4 @@ All features live: auth + guest mode, dashboard, federal+state search, profile/f
 
 196 tests across: smoke, pipeline, classifier, state categories, vote index, promise fallbacks, upcoming votes, funding lite.
 
-**Deferred:** FTM live EID lookup (undocumented filter syntax — use CSV). Email verification + password reset (need SMTP).
+**Deferred:** FTM live EID lookup (undocumented filter syntax — use CSV).

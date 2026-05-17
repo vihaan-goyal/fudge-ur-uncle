@@ -38,6 +38,42 @@ export const COPY = {
       newHereLink: "Create an account",
       guestPrompt: "Just looking?",
       guestLink: "Continue as guest",
+      forgotLink: "Forgot password?",
+    },
+    forgotPassword: {
+      title: "Reset your password",
+      subtitle: "We'll email you a link to set a new one.",
+      emailLabel: "Email",
+      submitIdle: "Send reset link",
+      submitBusy: "Sending…",
+      // Same copy whether or not the email matched — keeps us from leaking
+      // which addresses are registered.
+      doneMessage: "If we have an account for that email, a reset link is on the way. Check your inbox.",
+      backLink: "Back to log in",
+    },
+    resetPassword: {
+      title: "Choose a new password",
+      subtitle: "Use at least 8 characters. Avoid common passwords.",
+      passwordLabel: "New password",
+      confirmLabel: "Confirm new password",
+      submitIdle: "Update password",
+      submitBusy: "Updating…",
+      mismatch: "Passwords don't match",
+      success: "Password updated. Log in to continue.",
+      expired: "This reset link has expired. Request a new one from the log-in screen.",
+      backLink: "Back to log in",
+    },
+    verifyEmail: {
+      bannerTitle: "Verify your email",
+      bannerBody: "We sent a link to confirm your address.",
+      resendIdle: "Resend link",
+      resendBusy: "Sending…",
+      resendOk: "Check your inbox — link sent.",
+      resendErr: "Couldn't send. Try again in a bit.",
+      screenTitle: "Verifying your email…",
+      success: "Email verified. You're all set.",
+      failure: "This link is invalid or expired. Sign in and tap Resend to get a fresh one.",
+      cta: "Continue",
     },
   },
   eligibility: {
@@ -117,7 +153,8 @@ export const COPY = {
     },
   },
   events: {
-    listTitle: "Federal committee hearings",
+    // listTitle moved to inline JSX in App.jsx so "committee" and "hearings"
+    // can be wrapped in TermTip — copy.js is plain-string only.
     listSubtitle: "U.S. Congress · upcoming meetings",
     offlineBadge: "Offline — sample data",
     offlineBody: "Could not reach the server. Showing example events.",
@@ -167,6 +204,10 @@ export const COPY = {
     issuesSaved: "Saved",
     issuesSaveError: "Couldn't save",
     issuesCounter: (n, max) => `${n}/${max} selected`,
+    notifyTitle: "Notifications",
+    notifyToggleLabel: "Urgent alerts by email",
+    notifyHint: "We'll email you when an urgent alert lands on a rep in your state for an issue you care about. Usually 0–2 per week.",
+    notifyBouncing: "We tried to email you and it bounced. Re-enable once you've updated your address.",
   },
   profile: {
     promiseScoreLabel: "Promise",
@@ -486,5 +527,21 @@ export const GLOSSARY = {
   chamber: {
     label: "Chamber",
     body: "One of the two halves of a legislature. In Congress: the House and the Senate. Most states work the same way.",
+  },
+  fec: {
+    label: "FEC",
+    body: "Federal Election Commission — the government agency that tracks campaign donations. Their public records are how we follow the money for federal races.",
+  },
+  committee: {
+    label: "Committee",
+    body: "A small group of legislators who study one policy area (defense, agriculture, health, etc.) before the full chamber votes on bills about it. Most of the real work on a bill happens here.",
+  },
+  hearing: {
+    label: "Hearing",
+    body: "A scheduled meeting where a committee questions witnesses or debates a bill. Open to the public — anyone can attend and many are streamed online.",
+  },
+  donor: {
+    label: "Donor",
+    body: "Anyone who gives money to a campaign — an individual person, a company's employees, or a PAC. We surface the largest ones so you can see who's funding each rep.",
   },
 };

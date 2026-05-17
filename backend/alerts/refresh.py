@@ -150,6 +150,18 @@ def run(
     print("[refresh] === pipeline ===")
     summary["pipeline_stats"] = run_pipeline()
 
+    # Notification pass — separate from `run_pipeline` so the pipeline test
+    # suite doesn't have to mock email. Idempotent via alert_email_sends, so
+    # re-running this on every refresh tick is fine.
+    print("[refresh] === notify ===")
+    try:
+        from api.alert_notifications import notify_pending_urgent_alerts
+        summary["notify_stats"] = asyncio.run(notify_pending_urgent_alerts())
+    except Exception as e:
+        print(f"[refresh] notify FAILED (non-fatal): {e}")
+        traceback.print_exc()
+        summary["notify_stats"] = None
+
     print("[refresh] === summary ===")
     print(f"  federal: {summary['federal_stats']}")
     for st, st_stats in summary["state_stats"].items():
@@ -158,6 +170,7 @@ def run(
     if summary["ingest_failures"]:
         print(f"  ingest_failures: {summary['ingest_failures']}")
     print(f"  pipeline: {summary['pipeline_stats']}")
+    print(f"  notify:   {summary.get('notify_stats')}")
     return summary
 
 

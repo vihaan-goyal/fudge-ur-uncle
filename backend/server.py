@@ -25,6 +25,7 @@ from api import ai_cache, assistant_chat
 from api.alerts_router import router as alerts_router
 from api.auth import router as auth_router, get_current_user
 from api.upcoming_votes_router import router as upcoming_votes_router
+from api.webhooks_resend import router as webhooks_resend_router
 import config
 
 
@@ -142,6 +143,7 @@ app.add_middleware(
 app.include_router(alerts_router)
 app.include_router(auth_router)
 app.include_router(upcoming_votes_router)
+app.include_router(webhooks_resend_router)
 
 
 # ============================================================
@@ -162,6 +164,8 @@ def _health_payload():
             "openai": bool(config.OPENAI_API_KEY),
             "newsapi": bool(config.NEWSAPI_KEY),
             "guardian": bool(config.GUARDIAN_API_KEY),
+            "resend": bool(config.RESEND_API_KEY),
+            "resend_webhook": bool(config.RESEND_WEBHOOK_SECRET),
         },
     }
 

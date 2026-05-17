@@ -19,6 +19,22 @@ NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 FTM_API_KEY = os.getenv("FTM_API_KEY", "")
 
+# -- Email (Resend) --
+# RESEND_API_KEY drives transactional email (verification, password reset).
+# When missing, the email_sender module logs the link to stdout instead of
+# sending — useful in dev and on hosts where outbound SMTP is blocked.
+# RESEND_FROM must be a verified sender on the Resend dashboard.
+# FRONTEND_URL is the absolute origin used to build user-facing verify/reset
+# links (the emails point at the SPA, which extracts the token from ?verify=
+# or ?reset= and POSTs to the API).
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+RESEND_FROM = os.getenv("RESEND_FROM", "Fudge Ur Uncle <onboarding@resend.dev>")
+# Webhook signing secret from the Resend dashboard (Webhooks → reveal). When
+# unset, the /api/webhooks/resend handler rejects every request as a safety
+# default — we don't want to flip notify_alerts off based on unverified input.
+RESEND_WEBHOOK_SECRET = os.getenv("RESEND_WEBHOOK_SECRET", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
 # -- Base URLs --
 GUARDIAN_BASE = "https://content.guardianapis.com"
 NEWSAPI_BASE = "https://newsapi.org/v2"

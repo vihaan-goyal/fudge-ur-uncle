@@ -12,6 +12,9 @@ const SCREENS = {
   SPLASH: "splash",
   CREATE_ACCOUNT: "create_account",
   LOGIN: "login",
+  FORGOT_PASSWORD: "forgot_password",
+  RESET_PASSWORD: "reset_password",
+  VERIFY_EMAIL: "verify_email",
   ELIGIBILITY: "eligibility",
   ISSUE_SELECT: "issue_select",
   DASHBOARD: "dashboard",
@@ -1040,6 +1043,9 @@ const LoginScreen = ({ onNav, onSignedIn, offline, onEnterGuest }) => {
             {COPY.auth.login.newHerePrompt}{" "}
             <span style={{ color: colors.accent, cursor: "pointer" }} onClick={() => onNav(SCREENS.CREATE_ACCOUNT)}>{COPY.auth.login.newHereLink}</span>
           </div>
+          <div style={{ textAlign: "center", fontSize: 11, marginTop: 4 }}>
+            <span style={{ color: colors.accent, cursor: "pointer", textDecoration: "underline" }} onClick={() => onNav(SCREENS.FORGOT_PASSWORD)}>{COPY.auth.login.forgotLink}</span>
+          </div>
           {/* Temporary guest mode — handy for handing the phone to someone
               for a quick demo. User asked for this to be easy to remove
               later; the link + onEnterGuest prop are the whole footprint. */}
@@ -1050,6 +1056,183 @@ const LoginScreen = ({ onNav, onSignedIn, offline, onEnterGuest }) => {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+};
+
+// 3b. FORGOT PASSWORD — single-field screen. Server returns the same payload
+// for known/unknown emails so the UI is identical either way (no enumeration).
+const ForgotPasswordScreen = ({ onNav, offline }) => {
+  const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async () => {
+    setError(null);
+    if (!email.trim()) return setError("Email is required");
+    setSubmitting(true);
+    try {
+      await api.forgotPassword(email.trim());
+      setDone(true);
+    } catch (e) {
+      setError(e.detail || e.message || "Couldn't send. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingTop: 20 }}>
+        <BackButton onClick={() => onNav(SCREENS.LOGIN)} />
+        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>{COPY.auth.forgotPassword.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 12, marginBottom: 20, marginTop: 0 }}>{COPY.auth.forgotPassword.subtitle}</p>
+        {done ? (
+          <>
+            <div style={{ fontSize: 12, color: colors.text, lineHeight: 1.5, marginBottom: 16 }}>
+              {COPY.auth.forgotPassword.doneMessage}
+            </div>
+            <button style={s.btn("primary")} onClick={() => onNav(SCREENS.LOGIN)}>{COPY.auth.forgotPassword.backLink}</button>
+          </>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.forgotPassword.emailLabel}</label>
+              <input style={s.input} placeholder="jane@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+            </div>
+            {error && <div style={{ fontSize: 11, color: colors.red }}>{error}</div>}
+            <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
+              {submitting ? COPY.auth.forgotPassword.submitBusy : COPY.auth.forgotPassword.submitIdle}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// 3c. RESET PASSWORD — entered via the email link's ?reset=TOKEN query param.
+// The boot-time URL parser extracts the token, stashes it in App state, and
+// nukes the search string so a reload doesn't re-trigger the flow.
+const ResetPasswordScreen = ({ onNav, offline, token }) => {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [done, setDone] = useState(false);
+
+  if (!token) {
+    return (
+      <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+        <StatusBar offline={offline} />
+        <div style={{ ...s.body, paddingTop: 20 }}>
+          <h2 style={{ ...s.headerTitle, marginBottom: 8 }}>{COPY.auth.resetPassword.title}</h2>
+          <p style={{ fontSize: 12, color: colors.text, lineHeight: 1.5, marginBottom: 16 }}>{COPY.auth.resetPassword.expired}</p>
+          <button style={s.btn("primary")} onClick={() => onNav(SCREENS.LOGIN)}>{COPY.auth.resetPassword.backLink}</button>
+        </div>
+      </div>
+    );
+  }
+
+  const submit = async () => {
+    setError(null);
+    if (password.length < 8) return setError("Password must be at least 8 characters");
+    if (password !== confirm) return setError(COPY.auth.resetPassword.mismatch);
+    setSubmitting(true);
+    try {
+      await api.resetPassword(token, password);
+      setDone(true);
+    } catch (e) {
+      setError(e.detail || e.message || "Couldn't reset. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingTop: 20 }}>
+        <h2 style={{ ...s.headerTitle, marginBottom: 4 }}>{COPY.auth.resetPassword.title}</h2>
+        <p style={{ color: colors.textMuted, fontSize: 12, marginBottom: 20, marginTop: 0 }}>{COPY.auth.resetPassword.subtitle}</p>
+        {done ? (
+          <>
+            <div style={{ fontSize: 12, color: colors.text, lineHeight: 1.5, marginBottom: 16 }}>{COPY.auth.resetPassword.success}</div>
+            <button style={s.btn("primary")} onClick={() => onNav(SCREENS.LOGIN)}>{COPY.auth.resetPassword.backLink}</button>
+          </>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.resetPassword.passwordLabel}</label>
+              <input style={s.input} type="password" autoComplete="new-password" placeholder="Min 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: colors.textMuted, display: "block", marginBottom: 4 }}>{COPY.auth.resetPassword.confirmLabel}</label>
+              <input style={s.input} type="password" autoComplete="new-password" placeholder="Re-enter password" value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+            </div>
+            {error && <div style={{ fontSize: 11, color: colors.red }}>{error}</div>}
+            <button style={{ ...s.btn("primary"), marginTop: 8, opacity: submitting ? 0.6 : 1 }} disabled={submitting} onClick={submit}>
+              {submitting ? COPY.auth.resetPassword.submitBusy : COPY.auth.resetPassword.submitIdle}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// 3d. VERIFY EMAIL — entered via ?verify=TOKEN in the email link. Fires the
+// redeem call on mount and shows success/failure. No form input.
+const VerifyEmailScreen = ({ onNav, offline, token, onVerified }) => {
+  const [status, setStatus] = useState("loading"); // loading | ok | error
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!token) {
+      setStatus("error");
+      setError(COPY.auth.verifyEmail.failure);
+      return;
+    }
+    let cancelled = false;
+    api.verifyEmail(token)
+      .then((res) => {
+        if (cancelled) return;
+        setStatus("ok");
+        // Merge into the currently-signed-in user (if any) so the dashboard
+        // banner disappears immediately. Anon users just see the success card.
+        if (res?.user) onVerified?.(res.user);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setStatus("error");
+        setError(e.detail || e.message || COPY.auth.verifyEmail.failure);
+      });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  return (
+    <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
+      <StatusBar offline={offline} />
+      <div style={{ ...s.body, paddingTop: 20 }}>
+        <h2 style={{ ...s.headerTitle, marginBottom: 12 }}>{COPY.auth.verifyEmail.screenTitle}</h2>
+        {status === "loading" && (
+          <div style={{ fontSize: 12, color: colors.textMuted }}>One moment…</div>
+        )}
+        {status === "ok" && (
+          <>
+            <div style={{ fontSize: 12, color: colors.text, lineHeight: 1.5, marginBottom: 16 }}>{COPY.auth.verifyEmail.success}</div>
+            <button style={s.btn("primary")} onClick={() => onNav(auth.getToken() ? SCREENS.DASHBOARD : SCREENS.LOGIN)}>{COPY.auth.verifyEmail.cta}</button>
+          </>
+        )}
+        {status === "error" && (
+          <>
+            <div style={{ fontSize: 12, color: colors.text, lineHeight: 1.5, marginBottom: 16 }}>{error}</div>
+            <button style={s.btn("primary")} onClick={() => onNav(auth.getToken() ? SCREENS.DASHBOARD : SCREENS.LOGIN)}>{COPY.auth.verifyEmail.cta}</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1591,7 +1774,68 @@ const ComingUpCard = ({ upcoming, loading, onOpen }) => {
 };
 
 // 5. DASHBOARD - WIRED TO BACKEND (streaming)
-const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, userIssues }) => {
+// Soft verify banner. Sits above the dashboard greeting until the user
+// clicks the verify link in their email. Guests skip — no email row exists
+// for them. Already-verified users skip too. The "Resend" button hits the
+// API and reports inline status; we don't gate any feature on verification.
+const VerifyEmailBanner = ({ currentUser, onResend }) => {
+  const [status, setStatus] = useState(null); // null | "sending" | "ok" | "err"
+  if (!currentUser || currentUser.is_guest || currentUser.email_verified) return null;
+
+  const handleClick = async () => {
+    setStatus("sending");
+    try {
+      await onResend();
+      setStatus("ok");
+    } catch {
+      setStatus("err");
+    }
+  };
+
+  return (
+    <div style={{
+      background: colors.accentDim,
+      border: `1px solid ${colors.accent}`,
+      borderRadius: 12,
+      padding: "10px 12px",
+      marginBottom: 14,
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      fontFamily: fontSans,
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: colors.text }}>{COPY.auth.verifyEmail.bannerTitle}</div>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2, lineHeight: 1.35 }}>
+          {status === "ok" ? COPY.auth.verifyEmail.resendOk
+            : status === "err" ? COPY.auth.verifyEmail.resendErr
+            : COPY.auth.verifyEmail.bannerBody}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={status === "sending" || status === "ok"}
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 8,
+          padding: "6px 10px",
+          fontSize: 11,
+          fontFamily: fontSans,
+          color: colors.text,
+          cursor: status === "sending" || status === "ok" ? "default" : "pointer",
+          opacity: status === "sending" ? 0.6 : 1,
+          flexShrink: 0,
+        }}
+      >
+        {status === "sending" ? COPY.auth.verifyEmail.resendBusy : COPY.auth.verifyEmail.resendIdle}
+      </button>
+    </div>
+  );
+};
+
+const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, userIssues, onResendVerification }) => {
   const { data, loading, error, offline, reload } = useApi(
     () => api.getRepsByState(userState || "CT"),
     [userState],
@@ -1640,6 +1884,7 @@ const DashboardScreen = ({ onNav, onSelectPolitician, userState, currentUser, us
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
       <div style={{ ...s.body, paddingTop: 16, paddingBottom: 70 }}>
+        <VerifyEmailBanner currentUser={currentUser} onResend={onResendVerification} />
         {/* Greeting lives inside the scrollable body (not in a fixed
             header band) so it scrolls away with the content rather than
             sticking at the top. Search icon sits top-right since Search
@@ -2032,7 +2277,7 @@ const FundingScreen = ({ onNav, profileData }) => {
       <div style={{ ...s.body, paddingBottom: 70 }}>
         <BackButton onClick={() => onNav(SCREENS.POLITICIAN_PROFILE)} label={p.name} />
         <h2 style={{ ...s.headerTitle, fontSize: 16, marginBottom: 2 }}>Funding</h2>
-        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0 }}>Campaign finance from FEC filings</p>
+        <p style={{ color: colors.textMuted, fontSize: 11, marginTop: 0 }}>Campaign finance from <TermTip term="fec">FEC</TermTip> filings</p>
 
         <div style={{ ...s.card, textAlign: "center", marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: fontSans }}>Total raised</div>
@@ -2074,7 +2319,7 @@ const FundingScreen = ({ onNav, profileData }) => {
 
         {donors.length > 0 && (
           <div style={s.section}>
-            <div style={s.sectionTitle}>Top Donors</div>
+            <div style={s.sectionTitle}>Top <TermTip term="donor">Donors</TermTip></div>
             {donors.map((d, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < donors.length - 1 ? `1px solid ${colors.border}` : "none" }}>
                 <div>
@@ -2087,7 +2332,7 @@ const FundingScreen = ({ onNav, profileData }) => {
           </div>
         )}
 
-        <p style={{ fontSize: 10, color: colors.textMuted }}>Source: OpenFEC (FEC filings). Top donors aggregated by employer using same methodology as OpenSecrets.</p>
+        <p style={{ fontSize: 10, color: colors.textMuted }}>Source: OpenFEC (<TermTip term="fec">FEC</TermTip> filings). Top <TermTip term="donor">donors</TermTip> aggregated by employer using same methodology as OpenSecrets.</p>
       </div>
       <NavBar active={SCREENS.SEARCH} onNav={onNav} />
     </div>
@@ -2557,7 +2802,7 @@ const EventDetailScreen = ({ onNav, event }) => {
         {event.committees?.length > 0 && (
           <div style={{ ...s.card, marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: colors.textMuted, fontWeight: 600, marginBottom: 8 }}>
-              {COPY.events.committeesLabel(event.committees.length)}
+              <TermTip term="committee">{COPY.events.committeesLabel(event.committees.length)}</TermTip>
             </div>
             {event.committees.map((name, i) => (
               <div key={i} style={{ fontSize: 13, color: colors.text, lineHeight: 1.5 }}>{name}</div>
@@ -2634,7 +2879,7 @@ const EventsScreen = ({ onNav, userState, onSelectEvent }) => {
     <div style={{ ...s.phone, display: "flex", flexDirection: "column" }}>
       <StatusBar offline={offline} />
       <div style={s.header}>
-        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>{COPY.events.listTitle}</h1>
+        <h1 style={{ ...s.headerTitle, fontSize: 18 }}>Federal <TermTip term="committee">committee</TermTip> <TermTip term="hearing">hearings</TermTip></h1>
         <p style={s.headerSub}>{COPY.events.listSubtitle}</p>
       </div>
       <div style={{ ...s.body, paddingBottom: 70 }}>
@@ -2949,7 +3194,7 @@ const AlertsScreen = ({ onNav, onSelectPolitician }) => {
 }
 
 // 17. SETTINGS
-const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues, onSaveIssues, onSaveEligibility, onSignOut, onDeleteAccount }) => {
+const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues, onSaveIssues, onSaveEligibility, onSaveNotifyAlerts, onSignOut, onDeleteAccount }) => {
   const [editState, setEditState] = useState(userState || "CT");
   const [backendStatus, setBackendStatus] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
@@ -3060,6 +3305,50 @@ const SettingsScreen = ({ onNav, userState, onSaveState, currentUser, userIssues
             )}
           </div>
         </div>
+
+        {currentUser && !currentUser.is_guest && (
+          <div style={s.section}>
+            <div style={s.sectionTitle}>{COPY.settings.notifyTitle}</div>
+            <div style={s.card}>
+              {/* Tap-to-save toggle. Bouncing latch is informational — the
+                  webhook sets it on hard bounce and clearing it would just
+                  resend to a dead address, so the only path back is
+                  updating the email on file (not yet exposed). */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, fontFamily: fontSans, color: colors.text }}>{COPY.settings.notifyToggleLabel}</div>
+                  <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2, lineHeight: 1.4, fontFamily: fontSans }}>
+                    {currentUser.email_bouncing ? COPY.settings.notifyBouncing : COPY.settings.notifyHint}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!currentUser.notify_alerts}
+                  disabled={currentUser.email_bouncing}
+                  onClick={() => onSaveNotifyAlerts?.(!currentUser.notify_alerts)}
+                  style={{
+                    width: 44, height: 26, borderRadius: 13,
+                    border: `1.5px solid ${currentUser.notify_alerts ? colors.accent : colors.border}`,
+                    background: currentUser.notify_alerts ? colors.accent : colors.surfaceLight,
+                    position: "relative", cursor: currentUser.email_bouncing ? "not-allowed" : "pointer",
+                    opacity: currentUser.email_bouncing ? 0.5 : 1,
+                    transition: "background 0.15s, border-color 0.15s",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{
+                    position: "absolute", top: 2,
+                    left: currentUser.notify_alerts ? 20 : 2,
+                    width: 18, height: 18, borderRadius: "50%",
+                    background: "#fff",
+                    transition: "left 0.15s",
+                  }} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {currentUser && (
           <div style={s.section}>
@@ -3831,6 +4120,12 @@ export default function App() {
   // this on mount, auto-submits, and clears it. Null when no question pending.
   const [pendingAssistantPrompt, setPendingAssistantPrompt] = useState(null);
 
+  // Email-link tokens. Boot-time URL parser fills exactly one of these and
+  // routes to the matching screen; both stay null after that and `null token`
+  // on the reset screen shows the expired-link message.
+  const [verifyToken, setVerifyToken] = useState(null);
+  const [resetToken, setResetToken] = useState(null);
+
   // The screen the user was on right before entering the Ask tab. Drives the
   // assistantContext below so the chatbot still knows "you came from this
   // rep's profile / this event detail" once you've actually switched tabs.
@@ -3845,6 +4140,29 @@ export default function App() {
   // Check backend health on load
   useEffect(() => {
     api.health().catch(() => setGlobalOffline(true));
+  }, []);
+
+  // Boot-time parse of the email-link query string. Runs once. We strip the
+  // token from the URL with replaceState so a manual reload doesn't re-fire
+  // the flow (and so the token doesn't sit in browser history). The actual
+  // verify/reset POST lives in the screen components below, which read the
+  // stashed token from state.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get("verify");
+    const r = params.get("reset");
+    if (v) {
+      setVerifyToken(v);
+      setCurrentScreen(SCREENS.VERIFY_EMAIL);
+    } else if (r) {
+      setResetToken(r);
+      setCurrentScreen(SCREENS.RESET_PASSWORD);
+    } else {
+      return;
+    }
+    const clean = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, "", clean);
   }, []);
 
   // Auto-login from stored token; if it's stale, clear and stay on splash
@@ -3893,12 +4211,59 @@ export default function App() {
     setCurrentScreen(SCREENS.DASHBOARD);
   };
 
-  // Local-only eligibility — no backend column in this pass. Persists for the
-  // session (and through any setCurrentUser updates that spread the object);
-  // resets on logout. If we promote this to a real user field later, swap to
-  // an API call here and mirror in handleSaveIssues style.
-  const handleSetEligibility = (eligibility) => {
-    setCurrentUser((prev) => prev ? { ...prev, eligibility } : prev);
+  // Eligibility persists on the user row (users.eligibility). Guest accounts
+  // skip the API since they have no token; their pick stays in local state
+  // only — matches handleSaveIssues / handleSaveState shape.
+  const handleSetEligibility = async (eligibility) => {
+    if (currentUser?.is_guest) {
+      setCurrentUser((prev) => prev ? { ...prev, eligibility } : prev);
+      return;
+    }
+    if (currentUser && auth.getToken()) {
+      try {
+        const res = await api.updateMe({ eligibility });
+        setCurrentUser(res.user);
+        auth.setSession(auth.getToken(), res.user);
+      } catch {
+        // Network/offline path — keep the local pick so the eligibility-aware
+        // surfaces still render; next successful updateMe will reconcile.
+        setCurrentUser((prev) => prev ? { ...prev, eligibility } : prev);
+      }
+    } else {
+      setCurrentUser((prev) => prev ? { ...prev, eligibility } : prev);
+    }
+  };
+
+  // Resend the verification email from the dashboard banner. Throws on
+  // 429/500 so the banner can flip to the error state — the banner is the
+  // single source of UI feedback for this call.
+  const handleResendVerification = async () => {
+    const res = await api.resendVerification();
+    return res;
+  };
+
+  // Persist the urgent-alert email toggle. Same shape as handleSetEligibility —
+  // guests skip the API; signed-in users get an optimistic update on failure
+  // so the toggle stays interactive even when offline.
+  const handleSetNotifyAlerts = async (next) => {
+    if (currentUser?.is_guest) return;
+    if (currentUser && auth.getToken()) {
+      try {
+        const res = await api.updateMe({ notify_alerts: !!next });
+        setCurrentUser(res.user);
+        auth.setSession(auth.getToken(), res.user);
+      } catch {
+        setCurrentUser((prev) => prev ? { ...prev, notify_alerts: !!next } : prev);
+      }
+    }
+  };
+
+  // Called by the VerifyEmailScreen after a successful redeem. Merges the
+  // fresh user payload into local state so the dashboard banner disappears
+  // without a full reload, and refreshes the stored session blob.
+  const handleVerified = (user) => {
+    setCurrentUser(user);
+    if (auth.getToken()) auth.setSession(auth.getToken(), user);
   };
 
   const handleSaveState = async (newState) => {
@@ -4006,9 +4371,12 @@ export default function App() {
       case SCREENS.SPLASH: return <SplashScreen {...common} />;
       case SCREENS.CREATE_ACCOUNT: return <CreateAccountScreen {...common} onSignedIn={handleSignedIn} />;
       case SCREENS.LOGIN: return <LoginScreen {...common} onSignedIn={handleSignedIn} onEnterGuest={handleEnterGuest} />;
+      case SCREENS.FORGOT_PASSWORD: return <ForgotPasswordScreen {...common} />;
+      case SCREENS.RESET_PASSWORD: return <ResetPasswordScreen {...common} token={resetToken} />;
+      case SCREENS.VERIFY_EMAIL: return <VerifyEmailScreen {...common} token={verifyToken} onVerified={handleVerified} />;
       case SCREENS.ELIGIBILITY: return <EligibilityScreen {...common} onSelect={handleSetEligibility} />;
       case SCREENS.ISSUE_SELECT: return <IssueSelectScreen {...common} currentUser={currentUser} onSaveIssues={handleSaveIssues} />;
-      case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} currentUser={currentUser} userIssues={userIssues} />;
+      case SCREENS.DASHBOARD: return <DashboardScreen {...common} onSelectPolitician={selectPolitician} userState={userState} currentUser={currentUser} userIssues={userIssues} onResendVerification={handleResendVerification} />;
       case SCREENS.SEARCH: return <SearchScreen {...common} onSelectPolitician={selectPolitician} onSelectStateRep={selectStateRep} userState={userState} />;
       case SCREENS.POLITICIAN_PROFILE: return <PoliticianProfileScreen {...common} bioguideId={selectedBioguideId} onSetProfileData={setProfileData} />;
       case SCREENS.FUNDING: return <FundingScreen {...common} profileData={profileData} />;
@@ -4027,7 +4395,7 @@ export default function App() {
       case SCREENS.STATE_REP_STANCES: return <StateRepStancesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_PROMISES: return <StateRepPromisesScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
       case SCREENS.STATE_REP_ALERTS: return <StateRepAlertsScreen {...common} peopleId={selectedStatePeopleId} stateRepData={stateRepData} />;
-      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} userIssues={userIssues} onSaveIssues={handleSaveIssues} onSaveEligibility={handleSetEligibility} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
+      case SCREENS.SETTINGS: return <SettingsScreen {...common} userState={userState} onSaveState={handleSaveState} currentUser={currentUser} userIssues={userIssues} onSaveIssues={handleSaveIssues} onSaveEligibility={handleSetEligibility} onSaveNotifyAlerts={handleSetNotifyAlerts} onSignOut={handleSignOut} onDeleteAccount={handleDeleteAccount} />;
       case SCREENS.ASSISTANT: return <AssistantScreen
         {...common}
         context={assistantContext}
@@ -4053,6 +4421,9 @@ export default function App() {
     [SCREENS.SPLASH, "Splash"],
     [SCREENS.CREATE_ACCOUNT, "Create Account"],
     [SCREENS.LOGIN, "Log In"],
+    [SCREENS.FORGOT_PASSWORD, "Forgot Password"],
+    [SCREENS.RESET_PASSWORD, "Reset Password"],
+    [SCREENS.VERIFY_EMAIL, "Verify Email"],
     [SCREENS.ELIGIBILITY, "Eligibility"],
     [SCREENS.ISSUE_SELECT, "Issue Select"],
     [SCREENS.DASHBOARD, "Dashboard"],

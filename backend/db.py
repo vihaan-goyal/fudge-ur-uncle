@@ -138,6 +138,18 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL,
     state TEXT,
     issues TEXT,
+    eligibility TEXT,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    email_verified_at TIMESTAMP,
+    -- notify_alerts: per-user opt-in for urgent-alert emails. Defaults on; the
+    -- Resend webhook flips this off when a bounce/complaint event comes in,
+    -- and the Settings screen toggle lets the user opt back in.
+    notify_alerts INTEGER NOT NULL DEFAULT 1,
+    -- email_bouncing: latched flag set by the webhook on hard bounce. Even if
+    -- the user re-enables notify_alerts, this stays on until they update
+    -- their email address. Treat (notify_alerts=1 AND email_bouncing=0) as
+    -- the gate before sending.
+    email_bouncing INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -151,6 +163,47 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+-- One-shot tokens for email verification (sent on signup, redeemed via
+-- POST /api/auth/verify-email). Row deleted on redeem; expired rows pruned
+-- opportunistically when a new token is issued for the same user.
+CREATE TABLE IF NOT EXISTS email_verifications (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_verifications_expires ON email_verifications(expires_at);
+
+-- One-shot tokens for password reset (sent via POST /forgot-password,
+-- redeemed via POST /reset-password). Row deleted on use.
+CREATE TABLE IF NOT EXISTS password_resets (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_resets(expires_at);
+
+-- Dedupe ledger for urgent-alert emails. The notification pass scans urgent
+-- alerts on every refresh tick; INSERT OR IGNORE on (alert_id, user_id) means
+-- each user receives exactly one email per alert even if the pipeline runs
+-- repeatedly. Alert deletion cascades — a stale-swept alert frees the slot
+-- in case the same (donation, vote) pair becomes alert-worthy again later.
+CREATE TABLE IF NOT EXISTS alert_email_sends (
+    alert_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    delivered INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (alert_id, user_id),
+    FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_alert_email_sends_user ON alert_email_sends(user_id);
 """
 
 
@@ -203,6 +256,27 @@ def _migrate() -> None:
         u_cols = _table_columns(conn, "users")
         if u_cols and "issues" not in u_cols:
             conn.execute("ALTER TABLE users ADD COLUMN issues TEXT")
+
+        # users.eligibility — drives Mamu framing + Learn-to-Vote + dashboard tile.
+        u_cols = _table_columns(conn, "users")
+        if u_cols and "eligibility" not in u_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN eligibility TEXT")
+
+        # users.email_verified + email_verified_at — soft gate, banner shows
+        # in the UI until the user clicks the verification link.
+        u_cols = _table_columns(conn, "users")
+        if u_cols and "email_verified" not in u_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
+        if u_cols and "email_verified_at" not in u_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP")
+
+        # users.notify_alerts + email_bouncing — drive urgent-alert email
+        # notifications (off by webhook, on by Settings toggle).
+        u_cols = _table_columns(conn, "users")
+        if u_cols and "notify_alerts" not in u_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN notify_alerts INTEGER NOT NULL DEFAULT 1")
+        if u_cols and "email_bouncing" not in u_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN email_bouncing INTEGER NOT NULL DEFAULT 0")
 
         # donations: bioguide_id -> actor_id (+ actor_type discriminator)
         d_cols = _table_columns(conn, "donations")
